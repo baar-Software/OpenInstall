@@ -1,0 +1,32 @@
+[package]
+name = "openinstall"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "OpenInstall - verified Windows app store, package manager, and installer."
+default-run = "openinstall"
+
+[[bin]]
+name = "openinstall"
+path = "src/main.rs"
+# The compiled binary is named `openinstall*`, which Windows' installer-detection
+# heuristic would auto-elevate. The app gets Tauri's asInvoker manifest so the
+# real binary is fine, but a unit-test harness binary would not — and all testable
+# logic lives in the `oip-client` crate anyway. So no test harness for the bin.
+test = false
+doctest = false
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+oip-client = { workspace = true }
+oip-pack = { workspace = true }
+tauri = { workspace = true }
+tauri-plugin-deep-link = { workspace = true }
+tauri-plugin-single-instance = { workspace = true }
+tauri-plugin-dialog = { workspace = true }
+# Required by Tauri's command/handler macros (arg (de)serialization), even though
+# this crate doesn't reference them directly.
+serde = { workspace = true }
+serde_json = { workspace = true }

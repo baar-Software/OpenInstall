@@ -1,0 +1,54 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "OpenInstall",
+  "version": "0.1.0",
+  "identifier": "io.github.openinstall",
+  "build": {
+    "frontendDist": "../ui/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "OpenInstall",
+        "width": 900,
+        "height": 660,
+        "minWidth": 640,
+        "minHeight": 480,
+        "maximized": true,
+        "fullscreen": false,
+        "decorations": true,
+        "resizable": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: data: https: http://asset.localhost http://localhost:* http://127.0.0.1:* http://[::1]:*; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi"],
+    "publisher": "OpenInstall",
+    "category": "Utility",
+    "shortDescription": "Verified Windows app store and installer for OpenInstall packages",
+    "longDescription": "OpenInstall is a Windows package manager, app store, and installer that imports app repos and installs openinstall:// apps only after verifying publisher signatures, file hashes, Authenticode status, and explicit user consent. Free code signing provided by SignPath.io, certificate by SignPath Foundation.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["openinstall"]
+      }
+    }
+  }
+}
