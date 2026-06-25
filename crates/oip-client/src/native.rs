@@ -1,8 +1,8 @@
 //! Native OpenInstall app packages (`manifest.json` + `files/`).
 //!
-//! This is the package-manager path: OpenInstall verifies a package, stages files
-//! for Authenticode inspection, then installs by copying files into a per-user
-//! app directory. It never runs an external setup program.
+//! This is the package-manager path: OpenInstall verifies a package, then installs
+//! by copying files into a per-user app directory. It never runs an external setup
+//! program.
 //!
 //! ## Installed files and SmartScreen
 //!
@@ -25,7 +25,7 @@ use oip_core::{PinnedKey, TrustLevel};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::{authenticode, paths::data_dir, pkg::Package};
+use crate::{paths::data_dir, pkg::Package};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -96,7 +96,6 @@ pub struct VerifiedNativePackage {
     pub trust: TrustLevel,
     pub public_key: String,
     pub key_fingerprint: String,
-    pub authenticode: String,
     pub package_size: u64,
 }
 
@@ -120,11 +119,7 @@ fn default_install_mode() -> String {
     "perUser".to_string()
 }
 
-pub async fn verify_package(
-    package: &Package,
-    package_size: u64,
-    source_url: &str,
-) -> Result<VerifiedNativePackage> {
+pub async fn verify_package(package: &Package, package_size: u64) -> Result<VerifiedNativePackage> {
     let manifest_bytes = package
         .native_manifest_bytes()
         .ok_or_else(|| anyhow!("native package has no manifest.json"))?;
@@ -162,7 +157,6 @@ pub async fn verify_package(
     let pinned = crate::store::load_pin(&manifest.id);
     let trust = evaluate_native_trust(&manifest, pinned.as_ref(), &public_key);
     let key_fingerprint = oip_core::key_fingerprint(&public_key);
-    let scan = inspect_verified_files(&files, source_url).await;
 
     Ok(VerifiedNativePackage {
         manifest,
@@ -170,7 +164,6 @@ pub async fn verify_package(
         trust,
         public_key,
         key_fingerprint,
-        authenticode: scan.authenticode,
         package_size,
     })
 }
@@ -340,89 +333,6 @@ fn reject_unlisted_files(package: &Package, manifest: &NativeManifest) -> Result
         }
     }
     Ok(())
-}
-
-async fn inspect_verified_files(
-    files: &[VerifiedFile],
-    source_url: &str,
-) -> crate::scan::ScanReport {
-    let files = files.to_vec();
-    let source_url = source_url.to_string();
-    tokio::task::spawn_blocking(move || {
-        let dir = match tempfile::tempdir() {
-            Ok(dir) => dir,
-            Err(_) => {
-                return crate::scan::ScanReport {
-                    authenticode: "unavailable".to_string(),
-                }
-            }
-        };
-        for file in &files {
-            let Ok(path) = safe_join(dir.path(), &file.path) else {
-                return crate::scan::ScanReport {
-                    authenticode: "unavailable".to_string(),
-                };
-            };
-            if let Some(parent) = path.parent() {
-                if std::fs::create_dir_all(parent).is_err() {
-                    return crate::scan::ScanReport {
-                        authenticode: "unavailable".to_string(),
-                    };
-                }
-            }
-            if std::fs::write(&path, &file.bytes).is_err() {
-                return crate::scan::ScanReport {
-                    authenticode: "unavailable".to_string(),
-                };
-            }
-            let _ = crate::motw::write_mark_of_the_web(&path, &source_url);
-        }
-
-        let authenticode = authenticode_summary(dir.path(), &files);
-        crate::scan::ScanReport { authenticode }
-    })
-    .await
-    .unwrap_or_else(|_| crate::scan::ScanReport {
-        authenticode: "unavailable".to_string(),
-    })
-}
-
-fn authenticode_summary(root: &Path, files: &[VerifiedFile]) -> String {
-    let mut unsigned = 0usize;
-    let mut unavailable = 0usize;
-    for file in files {
-        if !is_windows_binary(&file.path) {
-            continue;
-        }
-        let Ok(path) = safe_join(root, &file.path) else {
-            unavailable += 1;
-            continue;
-        };
-        let status = authenticode::check_file(&path);
-        if status.starts_with("invalid:") {
-            return status;
-        }
-        if status == "unsigned" {
-            unsigned += 1;
-        } else if status == "unavailable" {
-            unavailable += 1;
-        }
-    }
-    if unsigned > 0 {
-        "unsigned".to_string()
-    } else if unavailable > 0 {
-        "unavailable".to_string()
-    } else {
-        "signed:all Windows binaries".to_string()
-    }
-}
-
-fn is_windows_binary(path: &str) -> bool {
-    let ext = Path::new(path)
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or_default();
-    matches!(ext.to_ascii_lowercase().as_str(), "exe" | "dll")
 }
 
 fn create_shortcuts(manifest: &NativeManifest, install_dir: &Path) -> Result<Option<String>> {

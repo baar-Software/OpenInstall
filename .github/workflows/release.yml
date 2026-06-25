@@ -46,7 +46,18 @@ jobs:
           workspaces: . -> target
 
       - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
+        # Retry: `cargo install` occasionally hits transient crates.io network
+        # errors (HTTP/2 framing / curl resets) that have nothing to do with us.
+        shell: pwsh
+        run: |
+          for ($i = 1; $i -le 3; $i++) {
+            cargo install tauri-cli --version "^2" --locked
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+            Write-Warning "tauri-cli install attempt $i failed (exit $LASTEXITCODE); retrying in 15s..."
+            Start-Sleep -Seconds 15
+          }
+          Write-Error "tauri-cli install failed after 3 attempts"
+          exit 1
 
       - name: Install UI dependencies
         working-directory: ui

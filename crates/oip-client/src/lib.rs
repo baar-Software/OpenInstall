@@ -19,7 +19,6 @@
 #![forbid(unsafe_code)]
 
 pub mod appinfo;
-pub mod authenticode;
 pub mod icon;
 pub mod installer;
 pub mod motw;
@@ -29,7 +28,6 @@ pub mod pkg;
 pub mod registry;
 pub mod repo;
 pub mod resolver;
-pub mod scan;
 pub mod settings;
 pub mod state;
 pub mod store;
@@ -56,10 +54,6 @@ pub struct ResolveResult {
     pub source_url: String,
     pub trust: TrustLevel,
     pub key_fingerprint: String,
-    /// Windows code-signing status of the inner installer (informative; does not
-    /// affect OpenInstall's own trust decision). One of `signed:<who>` /
-    /// `unsigned` / `invalid:<status>` / `unavailable`.
-    pub authenticode: String,
     pub payload_size: u64,
     pub install_token: String,
 }
@@ -168,13 +162,9 @@ pub async fn resolve(url: &str, state: &AppState) -> Result<ResolveResult, Strin
         return Err("this package is on the OpenInstall revocation blocklist".to_string());
     }
 
-    // 9. Read-only Authenticode check of the payload. This is informational only:
-    //    it tells the user whether Windows reputation checks may warn on first
-    //    run, and does not affect OpenInstall's own trust decision.
     let file_name = basename(&manifest.payload.file);
-    let report = scan::inspect_payload(&file_name, &payload).await;
 
-    // 10. Mint a single-use token bound to the verified bytes; STOP here (#1).
+    // 9. Mint a single-use token bound to the verified bytes; STOP here (#1).
     let token = state::new_token();
     let payload_size = payload.len() as u64;
     state.insert(
@@ -202,7 +192,6 @@ pub async fn resolve(url: &str, state: &AppState) -> Result<ResolveResult, Strin
         source_url,
         trust,
         key_fingerprint,
-        authenticode: report.authenticode,
         payload_size,
         install_token: token,
     })
@@ -215,7 +204,7 @@ async fn resolve_native(
     source_url: String,
     state: &AppState,
 ) -> Result<ResolveResult, String> {
-    let verified = native::verify_package(package, package_size, &source_url)
+    let verified = native::verify_package(package, package_size)
         .await
         .map_err(|e| e.to_string())?;
     let file_hashes = verified
@@ -261,7 +250,6 @@ async fn resolve_native(
         source_url,
         trust: verified.trust,
         key_fingerprint: verified.key_fingerprint,
-        authenticode: verified.authenticode,
         payload_size: verified.package_size,
         install_token: token,
     })

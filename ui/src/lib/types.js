@@ -14,7 +14,6 @@
  * @property {string} sourceUrl
  * @property {"Verified" | "VerifiedNewPublisher" | "PublisherChanged" | "Unverified"} trust
  * @property {string} keyFingerprint
- * @property {string} authenticode - Windows code-signing status
  * @property {number} payloadSize
  * @property {string} installToken
  */
