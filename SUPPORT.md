@@ -25,6 +25,11 @@ Open a bug report using the issue template. Include reproduction steps and
 whether the issue happens with a direct `.oip` link, an imported repo, or app
 launch/update management.
 
+## Feature Requests
+
+Open a feature request issue for public design discussion. For larger changes,
+link the request to the relevant roadmap area in [ROADMAP.md](ROADMAP.md).
+
 ## Security
 
 Do not report vulnerabilities in public issues, discussions, pull requests, or

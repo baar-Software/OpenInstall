@@ -66,6 +66,27 @@ Good PRs usually:
 * Avoid unrelated formatting/refactors.
 * Explain security impact clearly.
 
+## Commit Messages
+
+Use short, conventional prefixes where they help reviewers scan history:
+
+* `core:` verification kernel and trust logic.
+* `client:` resolver, install pipeline, registry, state, and blocklist code.
+* `pack:` package authoring.
+* `ui:` Svelte/Tauri frontend changes.
+* `docs:` documentation-only changes.
+* `ci:` GitHub Actions and automation.
+* `chore:` repository maintenance.
+
+Keep the subject line imperative and specific, for example
+`client: reject forbidden package paths`.
+
+## Review Expectations
+
+Security-sensitive changes need tests or a clear explanation of why tests are
+not practical. Maintainers may ask for a narrower patch if a PR combines
+behavior changes with broad formatting or refactoring.
+
 ## Areas That Need Help
 
 * Native `.oip` authoring tools.

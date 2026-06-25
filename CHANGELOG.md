@@ -16,12 +16,16 @@ the native `.oip` package format and authoring tools stabilize.
 * User-controlled install flow after OpenInstall package verification.
 * Authenticode status disclosure in the consent dialog.
 * GitHub community docs and issue/PR templates.
+* Privacy, governance, roadmap, download, and code-signing documentation.
+* Dependency review workflow for pull requests.
 
 ### Changed
 
 * OpenInstall v1 refuses legacy installer-style `.oip` packages at install time.
 * README, security docs, package format docs, and signing docs now describe the
   native package-manager model.
+* Release documentation now labels unsigned preview MSI artifacts clearly until
+  Windows code signing is enabled.
 
 ### Security
 

@@ -16,6 +16,18 @@ consent dialog, and only then installs the verified files itself.
 OpenInstall does **not** bypass Windows security policy, and it does **not**
 download and run random `Setup.exe` installers.
 
+## Contents
+
+* [Why OpenInstall Exists](#why-openinstall-exists)
+* [Security Model](#security-model)
+* [User Flow](#user-flow)
+* [Package Format](#package-format)
+* [Project Status](#project-status)
+* [Building From Source](#building-from-source)
+* [Downloads And Code Signing](#downloads-and-code-signing)
+* [Documentation](#documentation)
+* [Contributing](#contributing)
+
 ## Why OpenInstall Exists
 
 Windows app installation is often noisy: browser download warnings, unknown
@@ -222,6 +234,8 @@ npm --prefix ui run build
 * [DOWNLOAD.md](DOWNLOAD.md) - official download and signing status.
 * [SECURITY.md](SECURITY.md) - security policy and vulnerability reporting.
 * [PRIVACY.md](PRIVACY.md) - privacy policy.
+* [ROADMAP.md](ROADMAP.md) - project direction.
+* [GOVERNANCE.md](GOVERNANCE.md) - maintainer responsibilities.
 * [CONTRIBUTING.md](CONTRIBUTING.md) - contributor guide.
 
 ## Repository Layout

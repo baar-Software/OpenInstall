@@ -1,0 +1,9 @@
+# Default review ownership.
+* @AstroQuantumphysicist
+
+# Security-sensitive verification and install paths.
+/crates/oip-core/ @AstroQuantumphysicist
+/crates/oip-client/ @AstroQuantumphysicist
+/src-tauri/ @AstroQuantumphysicist
+/SECURITY.md @AstroQuantumphysicist
+/docs/oip-format.md @AstroQuantumphysicist
