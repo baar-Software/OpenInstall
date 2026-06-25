@@ -1,0 +1,299 @@
+:root {
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light dark;
+
+  /* light theme */
+  --bg: #fbfbfc;
+  --surface: #ffffff;
+  --surface-2: #f4f5f7;
+  --surface-3: #eceef1;
+  --glass: rgba(255, 255, 255, 0.72);
+  --glass-strong: rgba(255, 255, 255, 0.85);
+  --border: rgba(17, 24, 39, 0.09);
+  --border-strong: rgba(17, 24, 39, 0.16);
+  --fg: #15171c;
+  --muted: #697080;
+  --accent: #0a84ff;
+  --accent-press: #0060df;
+  --accent-2: #30c08b;
+  --accent-3: #ff9f0a;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(10, 132, 255, 0.1);
+  --ok: #1f9d57;
+  --ok-soft: rgba(31, 157, 87, 0.12);
+  --warn: #a86700;
+  --warn-soft: rgba(255, 159, 10, 0.14);
+  --bad: #e0314b;
+  --bad-bg: rgba(224, 49, 75, 0.1);
+  --shadow: 0 18px 44px rgba(17, 24, 39, 0.1);
+  --shadow-soft: 0 6px 20px rgba(17, 24, 39, 0.06);
+  --highlight: none;
+  --radius: 16px;
+  --radius-sm: 10px;
+  --content: 1180px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0c0f;
+    --surface: #15171c;
+    --surface-2: #1c1f26;
+    --surface-3: #23262e;
+    --glass: rgba(22, 24, 29, 0.66);
+    --glass-strong: rgba(22, 24, 29, 0.86);
+    --border: rgba(255, 255, 255, 0.09);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --fg: #e9ebef;
+    --muted: #9aa1ad;
+    --accent: #4c9aff;
+    --accent-press: #74b2ff;
+    --accent-2: #41d6a0;
+    --accent-3: #ffb13d;
+    --accent-fg: #07111f;
+    --accent-soft: rgba(76, 154, 255, 0.16);
+    --ok: #4cc98a;
+    --ok-soft: rgba(76, 201, 138, 0.16);
+    --warn: #ffba4d;
+    --warn-soft: rgba(255, 159, 10, 0.16);
+    --bad: #ff6b81;
+    --bad-bg: rgba(255, 107, 129, 0.14);
+    --shadow: 0 22px 60px rgba(0, 0, 0, 0.5);
+    --shadow-soft: 0 8px 26px rgba(0, 0, 0, 0.4);
+    --highlight: none;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--bad);
+  word-break: break-word;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--bad) 30%, transparent);
+  background: var(--bad-bg);
+  border-radius: var(--radius-sm);
+  padding: 0.7rem 0.85rem;
+  font-size: 0.9rem;
+}
+
+code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 0.85em;
+}
+
+/* ---- controls -------------------------------------------------------- */
+
+button {
+  font: inherit;
+  font-weight: 550;
+  min-height: 34px;
+  padding: 0.45rem 0.9rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease,
+    transform 140ms ease,
+    opacity 140ms ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-fg);
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--accent-press);
+  border-color: transparent;
+}
+
+button.primary.danger {
+  background: var(--bad);
+  color: #fff;
+}
+
+button.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+
+button.ghost:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: transparent;
+}
+
+button.subtle {
+  background: var(--surface-2);
+  border-color: transparent;
+}
+
+input[type="text"],
+input[type="password"],
+select {
+  font: inherit;
+  min-height: 38px;
+  padding: 0.52rem 0.75rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: inherit;
+  width: 100%;
+}
+
+input::placeholder {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+input:focus-visible,
+select:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+label {
+  font-size: 0.9rem;
+}
+
+.url {
+  word-break: break-all;
+}
+
+/* ---- shared layout primitives --------------------------------------- */
+
+.view-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.4rem;
+  animation: rise-in 240ms ease both;
+}
+
+.view-title {
+  margin: 0;
+  font-size: clamp(1.7rem, 3vw, 2.3rem);
+  font-weight: 720;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.view-subtitle {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3.5rem 1rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.empty-state h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.15rem;
+}
+
+.empty-state p {
+  margin: 0;
+}
+
+.mono {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (max-width: 760px) {
+  body {
+    font-size: 13px;
+  }
+
+  .view-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
