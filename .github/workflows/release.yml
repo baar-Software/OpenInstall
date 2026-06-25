@@ -1,0 +1,122 @@
+name: release
+
+# Build the Tauri MSI on a version tag, code-sign it on SignPath's HSM, and
+# attach the signed artifact to the GitHub Release.
+#
+# Trust model notes (do not "optimize" these away):
+#   * The private signing key NEVER exists in CI. The unsigned .msi is uploaded
+#     to SignPath, signed inside their Foundation HSM, and the signed copy is
+#     pulled back. No certificate or key material is stored in this repo or in
+#     GitHub secrets - only an API token that authorizes a signing *request*.
+#   * `permissions: contents: write` is the only elevated grant, needed solely
+#     to create/attach the Release. Nothing here disables AV/SmartScreen or
+#     touches the verify-then-consent runtime path.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Default to least privilege; the release job opts into contents:write below.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, sign, and publish MSI
+    runs-on: windows-latest
+    permissions:
+      # Required to create the GitHub Release and upload the signed asset.
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Install UI dependencies
+        working-directory: ui
+        # `npm ci` requires a committed package-lock.json. The build is
+        # reproducible only when that lockfile is present.
+        run: npm ci
+
+      - name: Build Tauri MSI
+        # `beforeBuildCommand` in tauri.conf.json runs the UI build.
+        run: cargo tauri build --bundles msi
+
+      # The MSI lands in the Windows bundle output directory. Stage it under a
+      # stable path so later steps don't depend on the version string.
+      - name: Stage unsigned MSI
+        id: stage
+        shell: pwsh
+        run: |
+          # This is a Cargo workspace, so the bundle lands in the workspace-root
+          # target dir. Search both layouts to be safe.
+          $paths = @(
+            "target/release/bundle/msi",
+            "src-tauri/target/release/bundle/msi"
+          ) | Where-Object { Test-Path $_ }
+          $msi = Get-ChildItem -Recurse -Filter *.msi -Path $paths |
+            Select-Object -First 1
+          if (-not $msi) {
+            Write-Error "No .msi produced by 'cargo tauri build'."
+            exit 1
+          }
+          New-Item -ItemType Directory -Force -Path unsigned | Out-Null
+          Copy-Item $msi.FullName -Destination "unsigned/$($msi.Name)"
+          Write-Output "msi-name=$($msi.Name)" >> $env:GITHUB_OUTPUT
+          Write-Output "Staged $($msi.Name)"
+
+      - name: Upload unsigned MSI artifact
+        id: upload-unsigned
+        uses: actions/upload-artifact@v4
+        with:
+          name: openinstall-msi-unsigned
+          path: unsigned/*.msi
+          if-no-files-found: error
+          retention-days: 7
+
+      # Submit the uploaded artifact to SignPath. The .msi is signed inside the
+      # SignPath Foundation HSM and the signed copy is downloaded into `signed/`.
+      - name: Sign MSI with SignPath
+        uses: signpath/github-action-submit-signing-request@v2
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: openinstall
+          signing-policy-slug: release-signing
+          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: signed
+
+      - name: Upload signed MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openinstall-msi-signed
+          path: signed/*.msi
+          if-no-files-found: error
+
+      - name: Attach signed MSI to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: signed/*.msi
+          fail_on_unmatched_files: true
+          generate_release_notes: true

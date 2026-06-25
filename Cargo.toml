@@ -1,0 +1,101 @@
+# OpenInstall - Cargo workspace
+#
+# The root package (`openinstall-tests`) exists primarily to host the top-level
+# integration test suite in `tests/`. The real crates live under `crates/` and
+# `src-tauri/`.
+#
+# Phase A (this commit) freezes the public contracts (see crates/oip-core/src/lib.rs
+# and src-tauri/src/main.rs). Phase B subagents implement bodies; they must NOT
+# change these signatures - report back instead. See the project brief.
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/oip-core",
+    "crates/oip-client",
+    "crates/oip-pack",
+    "crates/oip-cli",
+    "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/openinstall/openinstall"
+authors = ["OpenInstall contributors"]
+rust-version = "1.77"
+
+# Single source of truth for dependency versions. Member crates opt in with
+# `dep = { workspace = true }` and may add extra `features`. This table is owned
+# by Phase A; subagents should not need to edit it.
+[workspace.dependencies]
+oip-core = { path = "crates/oip-core" }
+oip-client = { path = "crates/oip-client" }
+oip-pack = { path = "crates/oip-pack" }
+# hashing & signatures
+blake3 = "1.8"
+sha2 = "0.11"
+hex = "0.4"
+minisign-verify = "0.2"   # client-side verify (zero-dependency)
+minisign = "0.9"          # keygen + signing (dev tool, fixtures)
+# serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+# errors
+thiserror = "2"
+anyhow = "1"
+# cli
+clap = { version = "4", features = ["derive"] }
+walkdir = "2"
+# archive
+zip = "8"
+# networking (default-tls -> SChannel on Windows, no OpenSSL/rustls build deps)
+reqwest = "0.13"
+# async
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "fs", "io-util", "time"] }
+# fs / paths / misc
+tempfile = "3"
+dirs = "6"
+url = "2"
+rand = "0.10"
+base64 = "0.22"
+# tauri
+tauri = { version = "2", features = [] }
+tauri-build = { version = "2", features = [] }
+tauri-plugin-deep-link = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-dialog = "2"
+
+# ---------------------------------------------------------------------------
+# Root package: hosts the top-level integration test suite (tests/).
+# Owned in Phase A; subagent 6 adds files under tests/ and fixtures/ only.
+# ---------------------------------------------------------------------------
+[package]
+name = "openinstall-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+# The lib has no tests; disabling its harness avoids building/running a binary
+# named `openinstall_tests-*.exe`, which Windows installer-detection would try to
+# auto-elevate. Integration tests live in tests/ (binary `adversarial-*.exe`).
+test = false
+doctest = false
+
+[dev-dependencies]
+oip-core = { workspace = true }
+blake3 = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+minisign = { workspace = true }
+minisign-verify = { workspace = true }
+zip = { workspace = true }
+toml = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tempfile = { workspace = true }

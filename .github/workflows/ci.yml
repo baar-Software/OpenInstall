@@ -1,0 +1,71 @@
+name: ci
+
+# Fast feedback on every push and PR: the workspace test suite, formatting,
+# clippy lint gate, and a UI build. Runs on Windows because OpenInstall is a
+# Windows-only app (MotW ADS, Authenticode inspection, SChannel TLS) and several tests
+# and code paths are Windows-specific.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  rust:
+    name: Rust (test / fmt / clippy)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+  ui:
+    name: UI (build)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install UI dependencies
+        run: npm ci
+
+      - name: Build UI
+        run: npm run build
+
+      - name: Test UI
+        run: npm test

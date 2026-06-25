@@ -1,0 +1,76 @@
+name: Bug report
+description: Report a reproducible problem in OpenInstall.
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. For vulnerabilities, do not use this form; follow SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: OpenInstall version
+      placeholder: "0.1.0, commit SHA, or local dev build"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 24H2"
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Install / consent flow
+        - Store / repositories
+        - Package verification
+        - Launchpad
+        - Package authoring
+        - Build / release
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Tell us exactly what you did.
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, screenshots, or package/repo URL
+      description: Do not paste secrets, private signing keys, or sensitive package URLs.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I am not reporting a security vulnerability publicly.
+          required: true
+        - label: I searched existing issues first.
+          required: true

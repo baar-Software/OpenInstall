@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/openinstall/openinstall/security/advisories/new
+    about: Please report vulnerabilities privately.
+  - name: Questions / support
+    url: https://github.com/openinstall/openinstall/issues/new?labels=question
+    about: Ask a question if Discussions are not enabled.
