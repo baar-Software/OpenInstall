@@ -1,0 +1,22 @@
+[package]
+name = "oip-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Developer CLI to build and sign OpenInstall (.oip) packages from an installer plus a minisign key. A thin front-end over oip-pack."
+
+[[bin]]
+name = "oip-cli"
+path = "src/main.rs"
+
+[dependencies]
+oip-core = { workspace = true }
+oip-pack = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+# Integration tests invoke the built binary and verify output with oip-core.
+oip-core = { workspace = true }
+zip = { workspace = true }
+tempfile = { workspace = true }
