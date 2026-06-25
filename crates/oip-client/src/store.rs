@@ -21,7 +21,7 @@ const PINS_FILE: &str = "pins.json";
 const BLOCKLIST_FILE: &str = "blocklist.json";
 const REMOTE_BLOCKLIST_FILE: &str = "remote-blocklist.txt";
 const DEFAULT_REMOTE_BLOCKLIST_URL: &str =
-    "https://raw.githubusercontent.com/openinstall/openinstall/main/blocklist.txt";
+    "https://raw.githubusercontent.com/baar-Software/OpenInstall/main/blocklist.txt";
 
 #[derive(Default, Serialize, Deserialize)]
 struct PinFile {

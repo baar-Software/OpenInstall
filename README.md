@@ -1,7 +1,7 @@
 # OpenInstall
 
-[![CI](https://github.com/openinstall/openinstall/actions/workflows/ci.yml/badge.svg)](https://github.com/openinstall/openinstall/actions/workflows/ci.yml)
-[![Release](https://github.com/openinstall/openinstall/actions/workflows/release.yml/badge.svg)](https://github.com/openinstall/openinstall/actions/workflows/release.yml)
+[![CI](https://github.com/baar-Software/OpenInstall/actions/workflows/ci.yml/badge.svg)](https://github.com/baar-Software/OpenInstall/actions/workflows/ci.yml)
+[![Release](https://github.com/baar-Software/OpenInstall/actions/workflows/release.yml/badge.svg)](https://github.com/baar-Software/OpenInstall/actions/workflows/release.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](#license)
 
 OpenInstall is an open source Windows package manager, mini app store, and
