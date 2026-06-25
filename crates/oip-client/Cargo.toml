@@ -1,0 +1,32 @@
+[package]
+name = "oip-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "OpenInstall client engine: URL resolution, download, the verification pipeline, Authenticode inspection, Mark-of-the-Web, TOFU pin store, and the single-use install-token gate. Tauri-free and unit-tested."
+
+[lib]
+name = "oip_client"
+path = "src/lib.rs"
+
+[dependencies]
+oip-core = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+zip = { workspace = true }
+anyhow = { workspace = true }
+rand = { workspace = true }
+tempfile = { workspace = true }
+dirs = { workspace = true }
+url = { workspace = true }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+# End-to-end downloadâ†’verify test: needs the test runtime, oip-core verify API,
+# and a temp dir. (oip-client's own modules are reached via its public API.)
+tokio = { workspace = true }
+oip-core = { workspace = true }
+tempfile = { workspace = true }

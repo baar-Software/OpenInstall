@@ -1,0 +1,26 @@
+# OpenInstall remote revocation blocklist
+#
+# This file is downloaded from the OpenInstall GitHub repository, cached by the
+# client, and checked during package resolve before the user can install.
+#
+# Supported entries:
+#   hash:<sha256-or-blake3>
+#   sha256:<package-or-file-sha256>
+#   blake3:<legacy-payload-blake3>
+#   package-sha256:<package-sha256>
+#   file-sha256:<installed-file-sha256>
+#   app-id:<reverse-dns-bundle-id>
+#   bundle-id:<reverse-dns-bundle-id>
+#   publisher:<publisher-or-author-name>
+#   author:<publisher-or-author-name>
+#   publisher-key:<public-key>
+#   key:<public-key>
+#
+# Keep evidence in the related private security advisory or maintainer issue.
+# Do not add entries casually: this file can stop users from installing packages.
+#
+# Example disabled entries:
+# hash:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+# app-id:com.example.malicious
+# publisher:Evil Example LLC
+# publisher-key:ed25519:PUBLIC_KEY_HERE
