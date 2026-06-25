@@ -185,6 +185,18 @@ target/release/bundle/msi/
 The release workflow currently builds MSI artifacts on version tags. Windows
 code signing is planned, but not yet enabled for public releases.
 
+## Downloads And Code Signing
+
+Official downloads are listed in [DOWNLOAD.md](DOWNLOAD.md) and published on
+[GitHub Releases](https://github.com/baar-Software/OpenInstall/releases).
+
+OpenInstall is applying for the SignPath Foundation program so official Windows
+release binaries can be Authenticode-signed through the SignPath Foundation.
+Until approval and signing are enabled, release artifacts are labeled as
+unsigned preview builds.
+
+See [docs/code-signing.md](docs/code-signing.md).
+
 ## Testing
 
 Run the same checks CI runs:
@@ -206,7 +218,10 @@ npm --prefix ui run build
 * [docs/smartscreen.md](docs/smartscreen.md) - Windows reputation behavior.
 * [docs/architecture.md](docs/architecture.md) - crate and app architecture.
 * [docs/releasing.md](docs/releasing.md) - maintainer release checklist.
+* [docs/code-signing.md](docs/code-signing.md) - Windows code-signing status.
+* [DOWNLOAD.md](DOWNLOAD.md) - official download and signing status.
 * [SECURITY.md](SECURITY.md) - security policy and vulnerability reporting.
+* [PRIVACY.md](PRIVACY.md) - privacy policy.
 * [CONTRIBUTING.md](CONTRIBUTING.md) - contributor guide.
 
 ## Repository Layout

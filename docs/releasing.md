@@ -1,7 +1,7 @@
 # Releasing OpenInstall
 
-OpenInstall releases are built on GitHub Actions. Windows code signing is
-planned, but not yet enabled for public releases.
+OpenInstall releases are built on GitHub Actions. Windows code signing through
+the SignPath Foundation is planned, but not yet enabled for public releases.
 
 ## Prerequisites
 

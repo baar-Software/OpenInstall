@@ -15,6 +15,10 @@ Please include:
 * The `openinstall://` link or repo URL if it is safe to share.
 * Screenshots or logs when relevant.
 
+## Privacy
+
+OpenInstall does not collect telemetry. See [PRIVACY.md](PRIVACY.md).
+
 ## Bugs
 
 Open a bug report using the issue template. Include reproduction steps and
