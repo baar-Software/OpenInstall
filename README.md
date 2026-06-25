@@ -240,4 +240,6 @@ For security-sensitive reports, do not open a public issue. Follow
 
 ## License
 
+Copyright 2026 Baar-Verlag Software Team and OpenInstall contributors.
+
 OpenInstall is licensed under the [GNU Affero General Public License v3.0](LICENSE).

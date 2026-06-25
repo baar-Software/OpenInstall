@@ -1,0 +1,39 @@
+name: Documentation issue
+description: Report missing, unclear, or outdated documentation.
+title: "docs: "
+labels: ["documentation", "needs-triage"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Documentation area
+      options:
+        - README
+        - Security policy
+        - Package format
+        - Repository format
+        - Signing keys
+        - Releasing
+        - Architecture
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: location
+    attributes:
+      label: Page or section
+      placeholder: "README.md#building-from-source"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is unclear or wrong?
+      description: Include the current wording if that helps.
+    validations:
+      required: true
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested wording or fix
+      description: Optional, but appreciated.

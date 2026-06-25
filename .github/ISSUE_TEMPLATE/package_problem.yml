@@ -1,0 +1,59 @@
+name: Package or repo problem
+description: Report an issue with a .oip package, repo catalog, or package authoring flow.
+title: "pkg: "
+labels: ["package", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not upload private signing keys, unreleased proprietary packages, or sensitive URLs.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Package creation
+        - Package verification
+        - Repo catalog
+        - Direct .oip install link
+        - Publisher key / signing
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: OpenInstall version
+      placeholder: "0.1.0, commit SHA, or local dev build"
+    validations:
+      required: true
+  - type: textarea
+    id: package_info
+    attributes:
+      label: Package or repo details
+      description: Share public URLs, manifest snippets, or sanitized metadata.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior or error
+      render: text
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I removed private keys, secrets, and non-public package URLs.
+          required: true
+        - label: I searched existing issues first.
+          required: true

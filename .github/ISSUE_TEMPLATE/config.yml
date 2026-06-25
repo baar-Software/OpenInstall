@@ -3,6 +3,3 @@ contact_links:
   - name: Security vulnerability
     url: https://github.com/baar-Software/OpenInstall/security/advisories/new
     about: Please report vulnerabilities privately.
-  - name: Questions / support
-    url: https://github.com/baar-Software/OpenInstall/issues/new?labels=question
-    about: Ask a question if Discussions are not enabled.

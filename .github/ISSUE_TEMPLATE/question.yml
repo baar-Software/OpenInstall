@@ -1,0 +1,32 @@
+name: Question
+description: Ask a usage, build, packaging, or project question.
+title: "question: "
+labels: ["question", "needs-triage"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Topic
+      options:
+        - Installing OpenInstall
+        - Building from source
+        - Creating .oip packages
+        - OpenInstall repositories
+        - Security model
+        - Releasing
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+      description: Tell us what you are trying to do and where you got stuck.
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Include versions, commands, links, or logs if useful.
+      render: text
