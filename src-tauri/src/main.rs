@@ -181,8 +181,19 @@ fn build_package(spec: PackageSpec) -> Result<BuildPackageResult, String> {
     let public_key_text = read_pubkey_arg(&spec.public_key).map_err(|e| e.to_string())?;
     let sk_text = std::fs::read_to_string(&spec.secret_key_path)
         .map_err(|e| format!("reading secret key {}: {e}", spec.secret_key_path))?;
-    let (files, inferred_entry) =
-        collect_native_files(&spec.app_dir, &spec.output_path, &spec.icon_path)?;
+    // Same collector the CLI uses, so GUI and CLI produce identical packages.
+    let icon_path = spec.icon_path.trim();
+    let icon = if icon_path.is_empty() {
+        None
+    } else {
+        Some(std::path::Path::new(icon_path))
+    };
+    let (files, inferred_entry) = oip_pack::collect_app_files(
+        std::path::Path::new(&spec.app_dir),
+        Some(std::path::Path::new(&spec.output_path)),
+        icon,
+    )
+    .map_err(|e| e.to_string())?;
     let meta = oip_pack::NativeManifestMeta {
         id: spec.id,
         name: spec.name,
@@ -209,94 +220,6 @@ fn build_package(spec: PackageSpec) -> Result<BuildPackageResult, String> {
         signed: true,
         size: oip.len() as u64,
     })
-}
-
-fn collect_native_files(
-    app_path: &str,
-    output_path: &str,
-    icon_path: &str,
-) -> Result<(Vec<oip_pack::NativeFileInput>, String), String> {
-    let source = std::path::Path::new(app_path);
-    if !source.exists() {
-        return Err(format!("{app_path} does not exist"));
-    }
-    let source = source
-        .canonicalize()
-        .map_err(|e| format!("resolving app source {app_path}: {e}"))?;
-    let output = std::path::Path::new(output_path).canonicalize().ok();
-    let mut files = Vec::new();
-    let inferred_entry = if source.is_file() {
-        let file_name = source
-            .file_name()
-            .and_then(|s| s.to_str())
-            .ok_or_else(|| "app executable has no file name".to_string())?
-            .to_string();
-        let bytes =
-            std::fs::read(&source).map_err(|e| format!("reading {}: {e}", source.display()))?;
-        files.push(oip_pack::NativeFileInput {
-            path: file_name.clone(),
-            bytes,
-        });
-        file_name
-    } else if source.is_dir() {
-        collect_native_files_inner(&source, &source, output.as_deref(), &mut files)?;
-        files
-            .iter()
-            .find(|file| file.path.to_ascii_lowercase().ends_with(".exe"))
-            .map(|file| file.path.clone())
-            .unwrap_or_default()
-    } else {
-        return Err(format!("{app_path} is not a file or directory"));
-    };
-    if !icon_path.trim().is_empty() {
-        let icon = std::path::Path::new(icon_path);
-        let icon_bytes =
-            std::fs::read(icon).map_err(|e| format!("reading icon {}: {e}", icon.display()))?;
-        files.retain(|file| file.path != "assets/icon.png");
-        files.push(oip_pack::NativeFileInput {
-            path: "assets/icon.png".to_string(),
-            bytes: icon_bytes,
-        });
-    }
-    if files.is_empty() {
-        return Err("app directory contains no packageable files".to_string());
-    }
-    files.sort_by(|a, b| a.path.cmp(&b.path));
-    Ok((files, inferred_entry))
-}
-
-fn collect_native_files_inner(
-    root: &std::path::Path,
-    dir: &std::path::Path,
-    output: Option<&std::path::Path>,
-    files: &mut Vec<oip_pack::NativeFileInput>,
-) -> Result<(), String> {
-    let entries = std::fs::read_dir(dir).map_err(|e| format!("reading {}: {e}", dir.display()))?;
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("reading {}: {e}", dir.display()))?;
-        let path = entry.path();
-        let ty = entry
-            .file_type()
-            .map_err(|e| format!("reading file type {}: {e}", path.display()))?;
-        if ty.is_dir() {
-            collect_native_files_inner(root, &path, output, files)?;
-        } else if ty.is_file() {
-            if output.is_some_and(|out| out == path) {
-                continue;
-            }
-            let rel = path
-                .strip_prefix(root)
-                .map_err(|e| format!("making relative path for {}: {e}", path.display()))?
-                .components()
-                .map(|part| part.as_os_str().to_string_lossy().into_owned())
-                .collect::<Vec<_>>()
-                .join("/");
-            let bytes =
-                std::fs::read(&path).map_err(|e| format!("reading {}: {e}", path.display()))?;
-            files.push(oip_pack::NativeFileInput { path: rel, bytes });
-        }
-    }
-    Ok(())
 }
 
 /// Fill in real icons for installed apps that lack one (runs after the launchpad

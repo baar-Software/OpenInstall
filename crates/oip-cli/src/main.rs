@@ -1,22 +1,23 @@
-//! `oip-cli` — developer CLI to build and sign OpenInstall (`.oip`) packages.
-//! A thin front-end over `oip-pack` (which both this CLI and the GUI share).
+//! `oip-cli` — developer CLI to build and sign native OpenInstall (`.oip`)
+//! packages. It produces the EXACT same native `manifest.json` + `files/`
+//! packages the GUI's Create view produces (both go through `oip-pack`), so a
+//! CLI-built package installs through the OpenInstall client identically.
 //!
 //!   oip-cli keygen --out <prefix> [--password <pw>]
-//!   oip-cli build  --payload <Setup.exe> --out <app.oip>
+//!   oip-cli build  --app <folder|exe> --out <app.oip>
 //!                  --id <id> --name <n> --publisher <p> --version <v>
-//!                  [--homepage <url>] [--type exe|msi] [--silent-args <args>]
-//!                  [--public-key <RW... | path/to/key.pub>]
-//!   oip-cli sign   --package <app.oip> --secret-key <prefix.key> [--password <pw>]
-//!                  [--public-key <RW... | path/to/key.pub>]
+//!                  --secret-key <key.key> --public-key <key.pub | RW...>
+//!                  [--entry <rel.exe>] [--homepage <url>] [--shortcut <name>]
+//!                  [--icon <png>] [--no-network] [--password <pw>]
 //!   oip-cli verify --package <app.oip>
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "oip-cli", version, about = "Build and sign OpenInstall (.oip) packages", long_about = None)]
+#[command(name = "oip-cli", version, about = "Build and sign native OpenInstall (.oip) packages", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     cmd: Cmd,
@@ -26,10 +27,8 @@ struct Cli {
 enum Cmd {
     /// Generate a minisign keypair (<prefix>.key + <prefix>.pub).
     Keygen(KeygenArgs),
-    /// Build a .oip from a payload + manifest metadata (hashes computed for you).
-    Build(BuildArgs),
-    /// Sign the manifest inside a .oip, producing manifest.minisig.
-    Sign(SignArgs),
+    /// Build + sign a native .oip from an app folder (or a single .exe).
+    Build(Box<BuildArgs>),
     /// Verify a .oip the way the OpenInstall client would.
     Verify(VerifyArgs),
 }
@@ -49,42 +48,48 @@ struct KeygenArgs {
 
 #[derive(Args)]
 struct BuildArgs {
+    /// App folder (or a single .exe) to package.
     #[arg(long)]
-    payload: PathBuf,
+    app: PathBuf,
+    /// Output .oip path.
     #[arg(long)]
     out: PathBuf,
+    /// Reverse-DNS app id, e.g. com.example.coolapp.
     #[arg(long)]
     id: String,
+    /// Human-facing app name.
     #[arg(long)]
     name: String,
+    /// Human-facing publisher name.
     #[arg(long)]
     publisher: String,
+    /// App version, e.g. 1.0.0.
     #[arg(long)]
     version: String,
-    #[arg(long)]
-    homepage: Option<String>,
-    /// Payload type: exe or msi.
-    #[arg(long = "type", default_value = "exe")]
-    payload_type: String,
-    /// Args passed to the installer AFTER the user consents (e.g. "/S").
-    #[arg(long)]
-    silent_args: Option<String>,
-    /// Embed a publisher public key (RW... base64 or a path to a .pub file).
-    #[arg(long)]
-    public_key: Option<String>,
-}
-
-#[derive(Args)]
-struct SignArgs {
-    #[arg(long)]
-    package: PathBuf,
+    /// Minisign secret key file (native packages are always signed).
     #[arg(long)]
     secret_key: PathBuf,
+    /// Publisher public key: a path to a .pub file or a bare RW... base64.
+    #[arg(long)]
+    public_key: String,
+    /// Entry-point executable, relative to --app. Inferred (first .exe) if omitted.
+    #[arg(long)]
+    entry: Option<String>,
+    /// Publisher website (optional).
+    #[arg(long)]
+    homepage: Option<String>,
+    /// Start Menu shortcut name (defaults to --name).
+    #[arg(long)]
+    shortcut: Option<String>,
+    /// PNG icon to embed at assets/icon.png (optional).
+    #[arg(long)]
+    icon: Option<String>,
+    /// Disable the network permission (it is on by default, matching the GUI).
+    #[arg(long)]
+    no_network: bool,
+    /// Password if the secret key is encrypted.
     #[arg(long)]
     password: Option<String>,
-    /// Embed/override the publisher public key before signing.
-    #[arg(long)]
-    public_key: Option<String>,
 }
 
 #[derive(Args)]
@@ -103,8 +108,7 @@ fn main() {
 fn run() -> Result<()> {
     match Cli::parse().cmd {
         Cmd::Keygen(a) => keygen(a),
-        Cmd::Build(a) => build(a),
-        Cmd::Sign(a) => sign(a),
+        Cmd::Build(a) => build(*a),
         Cmd::Verify(a) => verify(a),
     }
 }
@@ -126,10 +130,12 @@ fn keygen(a: KeygenArgs) -> Result<()> {
 
     println!("Wrote secret key: {sk_path}");
     println!("Wrote public key: {pk_path}");
+    println!("Public key (RW): {}", kp.public_key_b64);
     println!();
-    println!("Add this to manifest.toml under [publisher_key]:");
-    println!("  type       = \"minisign\"");
-    println!("  public_key = \"{}\"", kp.public_key_b64);
+    println!("Build a signed package with:");
+    println!("  oip-cli build --app <folder> --out app.oip --id com.example.app \\");
+    println!("    --name \"App\" --publisher \"You\" --version 1.0.0 \\");
+    println!("    --secret-key {sk_path} --public-key {pk_path}");
     if !kp.encrypted {
         println!();
         println!("NOTE: this secret key is UNENCRYPTED. Keep it secret; prefer --password for human-held keys.");
@@ -138,68 +144,45 @@ fn keygen(a: KeygenArgs) -> Result<()> {
 }
 
 fn build(a: BuildArgs) -> Result<()> {
-    let payload = std::fs::read(&a.payload)
-        .with_context(|| format!("reading payload {}", a.payload.display()))?;
-    let file_name = a
-        .payload
-        .file_name()
-        .and_then(|s| s.to_str())
-        .ok_or_else(|| anyhow!("payload path has no file name"))?
-        .to_string();
+    let public_key_text = read_pubkey_arg(&a.public_key)?;
+    let sk_text = std::fs::read_to_string(&a.secret_key)
+        .with_context(|| format!("reading secret key {}", a.secret_key.display()))?;
 
-    let public_key_text = match &a.public_key {
-        Some(arg) => Some(read_pubkey_arg(arg)?),
-        None => None,
+    // Same collection + native build the GUI uses → byte-identical packages.
+    let icon = a.icon.as_deref().map(Path::new);
+    let (files, inferred_entry) = oip_pack::collect_app_files(&a.app, Some(&a.out), icon)?;
+
+    let entry = match a.entry.as_deref().map(str::trim) {
+        Some(e) if !e.is_empty() => e.to_string(),
+        _ => inferred_entry,
     };
+    if entry.is_empty() {
+        bail!(
+            "no entry .exe found in {}; pass --entry <relative path>",
+            a.app.display()
+        );
+    }
 
-    let meta = oip_pack::ManifestMeta {
+    let meta = oip_pack::NativeManifestMeta {
         id: a.id,
         name: a.name,
-        publisher: a.publisher,
         version: a.version,
-        homepage: a.homepage.unwrap_or_default(),
-        payload_type: a.payload_type,
-        silent_args: a.silent_args.unwrap_or_default(),
+        publisher_name: a.publisher,
+        publisher_website: a.homepage.unwrap_or_default(),
+        entry,
+        network: !a.no_network,
+        shortcut_name: a.shortcut.unwrap_or_default(),
     };
-
-    let oip = oip_pack::build_oip_bytes(&meta, &payload, &file_name, public_key_text.as_deref())?;
+    let password = a.password.filter(|p| !p.is_empty());
+    let oip =
+        oip_pack::build_native_oip_bytes(&meta, &files, &public_key_text, &sk_text, password)?;
     std::fs::write(&a.out, &oip).with_context(|| format!("writing {}", a.out.display()))?;
 
-    println!("Built {} ({} bytes)", a.out.display(), oip.len());
-    if public_key_text.is_some() {
-        println!("Embedded a publisher key. Sign it next:");
-        println!(
-            "  oip-cli sign --package {} --secret-key <prefix>.key",
-            a.out.display()
-        );
-    } else {
-        println!("WARNING: no publisher key embedded — this package will be UNVERIFIED.");
-    }
-    Ok(())
-}
-
-fn sign(a: SignArgs) -> Result<()> {
-    let oip =
-        std::fs::read(&a.package).with_context(|| format!("reading {}", a.package.display()))?;
-    let secret_key_text = std::fs::read_to_string(&a.secret_key)
-        .with_context(|| format!("reading secret key {}", a.secret_key.display()))?;
-    let public_key_text = match &a.public_key {
-        Some(arg) => Some(read_pubkey_arg(arg)?),
-        None => None,
-    };
-
-    let signed = oip_pack::sign_oip_bytes(
-        &oip,
-        &secret_key_text,
-        a.password.clone(),
-        public_key_text.as_deref(),
-    )?;
-    std::fs::write(&a.package, &signed)
-        .with_context(|| format!("writing {}", a.package.display()))?;
-
     println!(
-        "Signed {} ✓ (signature verifies against the embedded key)",
-        a.package.display()
+        "Built signed native package {} ({} bytes, {} files).",
+        a.out.display(),
+        oip.len(),
+        files.len()
     );
     Ok(())
 }
@@ -207,9 +190,9 @@ fn sign(a: SignArgs) -> Result<()> {
 fn verify(a: VerifyArgs) -> Result<()> {
     let oip =
         std::fs::read(&a.package).with_context(|| format!("reading {}", a.package.display()))?;
-    let report = oip_pack::verify_oip_bytes(&oip)?;
+    let report = oip_pack::verify_oip_auto(&oip)?;
 
-    println!("payload hashes: OK (BLAKE3 + SHA-256)");
+    println!("file hashes: OK");
     if report.signed {
         println!(
             "signature: OK (key {})",
@@ -224,7 +207,6 @@ fn verify(a: VerifyArgs) -> Result<()> {
 }
 
 /// A `--public-key` argument is either a path to a `.pub` file or a bare RW key.
-/// Returns the text to hand to `oip-pack` (file contents, or the arg verbatim).
 fn read_pubkey_arg(arg: &str) -> Result<String> {
     let p = Path::new(arg);
     if p.exists() {

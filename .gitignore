@@ -20,3 +20,8 @@ Thumbs.db
 *.key
 !fixtures/**/*.key
 .env
+
+# Local packaging scratch / built sample packages
+/_baar_pack/
+*.oip
+!fixtures/**/*.oip

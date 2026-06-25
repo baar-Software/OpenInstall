@@ -1,7 +1,6 @@
-//! End-to-end tests for `oip-cli`: keygen → build → sign, then verify the
-//! resulting `.oip` through the real `oip-core` client path. Also asserts the
-//! adversarial cases (payload byte flip, manifest edit after signing) are
-//! refused — fail closed (brief §1.2, §10).
+//! End-to-end tests for `oip-cli`: keygen → build a NATIVE package from an app
+//! folder (or a single .exe) → verify. Asserts the CLI emits the same native
+//! `manifest.json` + `files/` + `signatures/` layout the GUI produces.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -9,6 +8,10 @@ use std::process::Command;
 
 fn bin() -> &'static str {
     env!("CARGO_BIN_EXE_oip-cli")
+}
+
+fn os(s: &str) -> std::ffi::OsString {
+    std::ffi::OsString::from(s)
 }
 
 fn run(args: &[&std::ffi::OsStr]) -> std::process::Output {
@@ -41,19 +44,24 @@ fn read_entry(oip: &Path, name: &str) -> Option<Vec<u8>> {
     None
 }
 
-/// Build a fully signed package in a temp dir and return (dir, oip_path).
-fn make_signed_package() -> (tempfile::TempDir, PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    let os = |s: &str| std::ffi::OsString::from(s);
+fn has_entry(oip: &Path, name: &str) -> bool {
+    read_entry(oip, name).is_some()
+}
 
+/// keygen + build a signed native package from a small app folder.
+fn make_native_package() -> (tempfile::TempDir, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
     let key_prefix = dir.path().join("testkey");
     let pub_path = dir.path().join("testkey.pub");
-    let payload = dir.path().join("Setup.exe");
-    let oip = dir.path().join("app-1.0.0.oip");
+    let key_path = dir.path().join("testkey.key");
 
-    std::fs::write(&payload, b"MZ fake installer bytes \x00\x01\x02 hello").unwrap();
+    // A tiny app folder: an entry exe plus a nested asset.
+    let app = dir.path().join("app");
+    std::fs::create_dir_all(app.join("data")).unwrap();
+    std::fs::write(app.join("CoolApp.exe"), b"MZ cool app bytes \x00\x01\x02").unwrap();
+    std::fs::write(app.join("data").join("readme.txt"), b"hello").unwrap();
+    let oip = dir.path().join("coolapp-1.0.0.oip");
 
-    // keygen (unencrypted for an unattended test)
     run(&[
         os("keygen").as_os_str(),
         os("--out").as_os_str(),
@@ -61,11 +69,10 @@ fn make_signed_package() -> (tempfile::TempDir, PathBuf) {
     ]);
     assert!(pub_path.exists(), "keygen should write a .pub");
 
-    // build (embeds the public key)
     run(&[
         os("build").as_os_str(),
-        os("--payload").as_os_str(),
-        payload.as_os_str(),
+        os("--app").as_os_str(),
+        app.as_os_str(),
         os("--out").as_os_str(),
         oip.as_os_str(),
         os("--id").as_os_str(),
@@ -76,122 +83,90 @@ fn make_signed_package() -> (tempfile::TempDir, PathBuf) {
         os("Example Dev").as_os_str(),
         os("--version").as_os_str(),
         os("1.0.0").as_os_str(),
-        os("--silent-args").as_os_str(),
-        os("/S").as_os_str(),
+        os("--secret-key").as_os_str(),
+        key_path.as_os_str(),
         os("--public-key").as_os_str(),
         pub_path.as_os_str(),
-    ]);
-
-    // sign
-    run(&[
-        os("sign").as_os_str(),
-        os("--package").as_os_str(),
-        oip.as_os_str(),
-        os("--secret-key").as_os_str(),
-        dir.path().join("testkey.key").as_os_str(),
     ]);
 
     (dir, oip)
 }
 
 #[test]
-fn build_sign_roundtrips_through_oip_core() {
-    let (_dir, oip) = make_signed_package();
-
-    let manifest_bytes = read_entry(&oip, "manifest.toml").expect("manifest.toml present");
-    let sig = read_entry(&oip, "manifest.minisig").expect("manifest.minisig present");
-
-    let manifest = oip_core::parse_manifest(&manifest_bytes).expect("manifest parses");
-    let key = manifest.publisher_key.as_ref().expect("has publisher key");
-
-    // Signature verifies against the embedded key.
-    oip_core::verify_manifest_sig(&manifest_bytes, &sig, &key.public_key)
-        .expect("signature verifies");
-
-    // Payload hashes match.
-    let payload = read_entry(&oip, &manifest.payload.file).expect("payload present");
-    oip_core::verify_payload(&payload, &manifest).expect("payload verifies");
-
-    // First-use trust (no pin) is VerifiedNewPublisher.
-    assert_eq!(
-        oip_core::evaluate_trust(&manifest, None),
-        oip_core::TrustLevel::VerifiedNewPublisher
+fn build_produces_native_package_layout() {
+    let (_dir, oip) = make_native_package();
+    assert!(
+        has_entry(&oip, "manifest.json"),
+        "native manifest.json present"
     );
+    assert!(
+        has_entry(&oip, "files/CoolApp.exe"),
+        "entry exe under files/"
+    );
+    assert!(
+        has_entry(&oip, "files/data/readme.txt"),
+        "nested file under files/"
+    );
+    assert!(
+        has_entry(&oip, "signatures/publisher.ed25519.sig"),
+        "publisher signature present"
+    );
+    // It must NOT be the legacy format.
+    assert!(!has_entry(&oip, "manifest.toml"), "no legacy manifest.toml");
+
+    let manifest = String::from_utf8(read_entry(&oip, "manifest.json").unwrap()).unwrap();
+    assert!(manifest.contains("com.example.coolapp"), "id in manifest");
+    assert!(manifest.contains("CoolApp.exe"), "entry in manifest");
+    assert!(manifest.contains("\"minisign:"), "publisher key embedded");
 }
 
 #[test]
-fn flipped_payload_byte_is_refused() {
-    let (_dir, oip) = make_signed_package();
-    let manifest_bytes = read_entry(&oip, "manifest.toml").unwrap();
-    let manifest = oip_core::parse_manifest(&manifest_bytes).unwrap();
-    let mut payload = read_entry(&oip, &manifest.payload.file).unwrap();
-
-    payload[0] ^= 0xFF; // flip a byte
-
-    let err =
-        oip_core::verify_payload(&payload, &manifest).expect_err("flipped payload must be refused");
-    assert!(matches!(err, oip_core::OipError::Blake3Mismatch));
-}
-
-#[test]
-fn manifest_edited_after_signing_is_refused() {
-    let (_dir, oip) = make_signed_package();
-    let manifest_bytes = read_entry(&oip, "manifest.toml").unwrap();
-    let sig = read_entry(&oip, "manifest.minisig").unwrap();
-    let manifest = oip_core::parse_manifest(&manifest_bytes).unwrap();
-    let key = manifest.publisher_key.as_ref().unwrap();
-
-    // Tamper the signed bytes.
-    let mut tampered = manifest_bytes.clone();
-    tampered.extend_from_slice(b"\n# sneaky trailing comment\n");
-
-    let err = oip_core::verify_manifest_sig(&tampered, &sig, &key.public_key)
-        .expect_err("edited manifest must fail signature verification");
-    assert!(matches!(err, oip_core::OipError::SignatureInvalid));
-}
-
-#[test]
-fn verify_subcommand_succeeds_on_good_package() {
-    let (_dir, oip) = make_signed_package();
-    // The `verify` subcommand must exit 0 for a good package.
-    run(&[
-        std::ffi::OsString::from("verify").as_os_str(),
-        std::ffi::OsString::from("--package").as_os_str(),
+fn verify_subcommand_reports_signed() {
+    let (_dir, oip) = make_native_package();
+    let out = run(&[
+        os("verify").as_os_str(),
+        os("--package").as_os_str(),
         oip.as_os_str(),
     ]);
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("signature: OK"), "verify output: {stdout}");
 }
 
 #[test]
-fn unsigned_build_is_unverified() {
+fn build_from_single_exe_works() {
     let dir = tempfile::tempdir().unwrap();
-    let payload = dir.path().join("Setup.exe");
-    let oip = dir.path().join("unsigned.oip");
-    std::fs::write(&payload, b"dummy payload").unwrap();
+    let key_prefix = dir.path().join("k");
+    run(&[
+        os("keygen").as_os_str(),
+        os("--out").as_os_str(),
+        key_prefix.as_os_str(),
+    ]);
 
-    let os = |s: &str| std::ffi::OsString::from(s);
-    // build WITHOUT --public-key => unsigned, degraded.
+    let exe = dir.path().join("Solo.exe");
+    std::fs::write(&exe, b"MZ solo app").unwrap();
+    let oip = dir.path().join("solo.oip");
+
     run(&[
         os("build").as_os_str(),
-        os("--payload").as_os_str(),
-        payload.as_os_str(),
+        os("--app").as_os_str(),
+        exe.as_os_str(),
         os("--out").as_os_str(),
         oip.as_os_str(),
         os("--id").as_os_str(),
-        os("com.example.unsigned").as_os_str(),
+        os("com.example.solo").as_os_str(),
         os("--name").as_os_str(),
-        os("NoKey").as_os_str(),
+        os("Solo").as_os_str(),
         os("--publisher").as_os_str(),
-        os("Anon").as_os_str(),
+        os("Me").as_os_str(),
         os("--version").as_os_str(),
-        os("0.1.0").as_os_str(),
+        os("2.0.0").as_os_str(),
+        os("--secret-key").as_os_str(),
+        dir.path().join("k.key").as_os_str(),
+        os("--public-key").as_os_str(),
+        dir.path().join("k.pub").as_os_str(),
     ]);
 
-    let manifest_bytes = read_entry(&oip, "manifest.toml").unwrap();
-    let manifest = oip_core::parse_manifest(&manifest_bytes).unwrap();
-    assert!(manifest.publisher_key.is_none());
-    assert!(read_entry(&oip, "manifest.minisig").is_none());
-    assert_eq!(
-        oip_core::evaluate_trust(&manifest, None),
-        oip_core::TrustLevel::Unverified
-    );
+    assert!(has_entry(&oip, "manifest.json"));
+    assert!(has_entry(&oip, "files/Solo.exe"));
+    assert!(has_entry(&oip, "signatures/publisher.ed25519.sig"));
 }

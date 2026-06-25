@@ -15,10 +15,11 @@
 #![forbid(unsafe_code)]
 
 use std::io::{Cursor, Read, Write};
+use std::path::Path;
 
 use anyhow::{anyhow, bail, Context, Result};
 use minisign::{KeyPair, PublicKey, PublicKeyBox, SecretKey, SecretKeyBox};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use zip::write::{SimpleFileOptions, ZipWriter};
 use zip::{CompressionMethod, ZipArchive};
@@ -385,6 +386,98 @@ pub fn build_native_oip_bytes(
     Ok(zw.finish()?.into_inner())
 }
 
+/// Collect an app folder (or a single `.exe`) into native package files. Walks a
+/// folder recursively, optionally excludes `exclude_output` (so the `.oip` is not
+/// packaged into itself), and injects `icon` as `assets/icon.png`. Returns the
+/// files (sorted by path) and an inferred entry (the first `.exe`). Shared by the
+/// CLI and the GUI so both produce byte-identical native packages.
+pub fn collect_app_files(
+    app_source: &Path,
+    exclude_output: Option<&Path>,
+    icon: Option<&Path>,
+) -> Result<(Vec<NativeFileInput>, String)> {
+    if !app_source.exists() {
+        bail!("{} does not exist", app_source.display());
+    }
+    let source = app_source
+        .canonicalize()
+        .with_context(|| format!("resolving app source {}", app_source.display()))?;
+    let output = exclude_output.and_then(|p| p.canonicalize().ok());
+    let mut files = Vec::new();
+
+    let inferred_entry = if source.is_file() {
+        let file_name = source
+            .file_name()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| anyhow!("app executable has no file name"))?
+            .to_string();
+        let bytes =
+            std::fs::read(&source).with_context(|| format!("reading {}", source.display()))?;
+        files.push(NativeFileInput {
+            path: file_name.clone(),
+            bytes,
+        });
+        file_name
+    } else if source.is_dir() {
+        collect_dir(&source, &source, output.as_deref(), &mut files)?;
+        files
+            .iter()
+            .find(|f| f.path.to_ascii_lowercase().ends_with(".exe"))
+            .map(|f| f.path.clone())
+            .unwrap_or_default()
+    } else {
+        bail!("{} is not a file or directory", source.display());
+    };
+
+    if let Some(icon) = icon {
+        if !icon.as_os_str().is_empty() {
+            let icon_bytes =
+                std::fs::read(icon).with_context(|| format!("reading icon {}", icon.display()))?;
+            files.retain(|f| f.path != "assets/icon.png");
+            files.push(NativeFileInput {
+                path: "assets/icon.png".to_string(),
+                bytes: icon_bytes,
+            });
+        }
+    }
+    if files.is_empty() {
+        bail!("app source contains no packageable files");
+    }
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok((files, inferred_entry))
+}
+
+fn collect_dir(
+    root: &Path,
+    dir: &Path,
+    output: Option<&Path>,
+    files: &mut Vec<NativeFileInput>,
+) -> Result<()> {
+    for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
+        let entry = entry?;
+        let path = entry.path();
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            collect_dir(root, &path, output, files)?;
+        } else if ty.is_file() {
+            if output.is_some_and(|out| out == path) {
+                continue;
+            }
+            let rel = path
+                .strip_prefix(root)
+                .with_context(|| format!("making relative path for {}", path.display()))?
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+                .join("/");
+            let bytes =
+                std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
+            files.push(NativeFileInput { path: rel, bytes });
+        }
+    }
+    Ok(())
+}
+
 /// Whether a built (or read) `.oip` already carries a publisher key.
 pub fn is_signed(oip_bytes: &[u8]) -> Result<bool> {
     let entries = read_zip_entries(oip_bytes)?;
@@ -498,6 +591,85 @@ pub fn verify_oip_bytes(oip_bytes: &[u8]) -> Result<VerifyReport> {
         key_fingerprint,
         trust: oip_core::evaluate_trust(&manifest, None),
     })
+}
+
+#[derive(Deserialize)]
+struct NativeManifestRead {
+    #[serde(default)]
+    id: String,
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    version: String,
+    publisher: NativePublisherRead,
+    #[serde(default)]
+    files: Vec<NativeFileRead>,
+}
+
+#[derive(Deserialize)]
+struct NativePublisherRead {
+    key: String,
+}
+
+#[derive(Deserialize)]
+struct NativeFileRead {
+    path: String,
+    sha256: String,
+}
+
+/// Verify a native (`manifest.json` + `files/`) `.oip` exactly as the client does:
+/// the publisher signature over `manifest.json`, then every file's SHA-256. Trust
+/// is first-use (no local pin on the dev side).
+pub fn verify_native_oip_bytes(oip_bytes: &[u8]) -> Result<VerifyReport> {
+    let entries = read_zip_entries(oip_bytes)?;
+    let manifest_bytes = find_entry(&entries, NATIVE_MANIFEST_NAME)
+        .ok_or_else(|| anyhow!("package has no {NATIVE_MANIFEST_NAME}"))?
+        .to_vec();
+    let manifest: NativeManifestRead =
+        serde_json::from_slice(&manifest_bytes).context("parsing manifest.json")?;
+
+    let raw_key = manifest.publisher.key.trim();
+    let key = raw_key
+        .strip_prefix("minisign:")
+        .or_else(|| raw_key.strip_prefix("ed25519:"))
+        .unwrap_or(raw_key);
+    let public_key = resolve_public_key(key)?;
+
+    let sig = find_entry(&entries, NATIVE_SIG_NAME)
+        .ok_or_else(|| anyhow!("package has no {NATIVE_SIG_NAME}"))?;
+    oip_core::verify_manifest_sig(&manifest_bytes, sig, &public_key)
+        .context("publisher signature verification")?;
+
+    if manifest.files.is_empty() {
+        bail!("native package lists no files");
+    }
+    for file in &manifest.files {
+        let data = find_entry(&entries, &format!("files/{}", file.path))
+            .ok_or_else(|| anyhow!("file `{}` is missing from the package", file.path))?;
+        if !hex::encode(Sha256::digest(data)).eq_ignore_ascii_case(&file.sha256) {
+            bail!("file `{}` failed SHA-256 verification", file.path);
+        }
+    }
+
+    Ok(VerifyReport {
+        id: manifest.id,
+        name: manifest.name,
+        version: manifest.version,
+        signed: true,
+        key_fingerprint: Some(oip_core::key_fingerprint(&public_key)),
+        trust: oip_core::TrustLevel::VerifiedNewPublisher,
+    })
+}
+
+/// Verify a `.oip`, auto-detecting native (`manifest.json`) vs legacy
+/// (`manifest.toml`).
+pub fn verify_oip_auto(oip_bytes: &[u8]) -> Result<VerifyReport> {
+    let entries = read_zip_entries(oip_bytes)?;
+    if find_entry(&entries, NATIVE_MANIFEST_NAME).is_some() {
+        verify_native_oip_bytes(oip_bytes)
+    } else {
+        verify_oip_bytes(oip_bytes)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -714,5 +886,36 @@ mod tests {
         assert!(find_entry(&entries, NATIVE_MANIFEST_NAME).is_some());
         assert!(find_entry(&entries, "files/Native.exe").is_some());
         assert!(find_entry(&entries, NATIVE_SIG_NAME).is_some());
+    }
+
+    #[test]
+    fn native_build_then_verify_roundtrips() {
+        let kp = generate_keypair(None).unwrap();
+        let meta = NativeManifestMeta {
+            id: "com.example.native".into(),
+            name: "Native App".into(),
+            version: "2.1.0".into(),
+            publisher_name: "Example Dev".into(),
+            publisher_website: "https://example.com".into(),
+            entry: "Native.exe".into(),
+            network: true,
+            shortcut_name: String::new(),
+        };
+        let files = vec![NativeFileInput {
+            path: "Native.exe".into(),
+            bytes: b"MZ native app bytes".to_vec(),
+        }];
+        let oip =
+            build_native_oip_bytes(&meta, &files, &kp.public_key_b64, &kp.secret_key_box, None)
+                .unwrap();
+
+        let report = verify_native_oip_bytes(&oip).unwrap();
+        assert!(report.signed);
+        assert_eq!(report.id, "com.example.native");
+        assert_eq!(report.version, "2.1.0");
+        assert_eq!(report.trust, oip_core::TrustLevel::VerifiedNewPublisher);
+
+        // verify_oip_auto detects the native format.
+        assert_eq!(verify_oip_auto(&oip).unwrap().id, "com.example.native");
     }
 }
