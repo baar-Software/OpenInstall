@@ -1,0 +1,19 @@
+[package]
+name = "oip-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "OpenInstall package (.oip) verification core: manifest parsing, BLAKE3 + SHA-256 payload verification, minisign signature verification, and TOFU trust evaluation. Pure and side-effect-free."
+
+[dependencies]
+serde = { workspace = true }
+toml = { workspace = true }
+thiserror = { workspace = true }
+blake3 = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+minisign-verify = { workspace = true }
+
+[dev-dependencies]
+# Used only by oip-core's own unit tests to mint valid signatures/keys.
+minisign = { workspace = true }
