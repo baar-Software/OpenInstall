@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/openinstall/openinstall/actions/workflows/ci.yml/badge.svg)](https://github.com/openinstall/openinstall/actions/workflows/ci.yml)
 [![Release](https://github.com/openinstall/openinstall/actions/workflows/release.yml/badge.svg)](https://github.com/openinstall/openinstall/actions/workflows/release.yml)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](#license)
 
 OpenInstall is an open source Windows package manager, mini app store, and
 installer for signed `.oip` app packages.
@@ -240,9 +240,4 @@ For security-sensitive reports, do not open a public issue. Follow
 
 ## License
 
-Licensed under either of:
-
-* [MIT](LICENSE-MIT)
-* [Apache License 2.0](LICENSE-APACHE)
-
-at your option.
+OpenInstall is licensed under the [GNU Affero General Public License v3.0](LICENSE).
