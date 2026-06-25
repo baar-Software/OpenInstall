@@ -3,7 +3,7 @@ name = "oip-pack"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "OpenInstall package authoring: build native .oip packages, generate minisign keypairs, and sign package manifests. Byte-based and I/O-free so both oip-cli and the GUI can reuse it. NEVER signs with the SignPath cert and has no silent-install behavior."
+description = "OpenInstall package authoring: build native .oip packages, generate minisign keypairs, and sign package manifests. Byte-based and I/O-free so both oip-cli and the GUI can reuse it. Never signs third-party payloads with the OpenInstall release certificate and has no silent-install behavior."
 
 [lib]
 name = "oip_pack"

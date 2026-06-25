@@ -82,9 +82,9 @@ This has consequences:
 
 ## OpenInstall's Own Signing
 
-OpenInstall release binaries are Authenticode-signed through the SignPath
-Foundation. That certificate signs OpenInstall itself, not third-party apps and
-not third-party `.oip` packages.
+OpenInstall release binaries are expected to be Authenticode-signed before
+stable public distribution. That certificate signs OpenInstall itself, not
+third-party apps and not third-party `.oip` packages.
 
 ## See Also
 

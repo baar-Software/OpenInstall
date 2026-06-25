@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test \"src/**/*.test.js\""
+    "test": "node --test src/lib/consent.test.js src/lib/url.test.js"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.1.2",

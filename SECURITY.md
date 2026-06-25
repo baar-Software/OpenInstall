@@ -104,11 +104,13 @@ OpenInstall still does not and cannot promise zero Windows security UI:
 If you find a flaw in OpenInstall itself, such as a way to bypass consent, defeat
 signature/hash verification, evade Authenticode disclosure, install a forbidden
 package type, or make a tampered package appear trusted, please report it
-privately:
+privately through GitHub Security Advisories:
 
-* Preferred: open a private security advisory via GitHub.
-* Do not open a public issue for an exploitable verification or consent bypass
-  until a fix is available.
+https://github.com/baar-Software/OpenInstall/security/advisories/new
+
+Do not open a public issue, discussion, pull request, or support thread for an
+exploitable verification, consent, package parsing, update, or install bypass
+until a fix is available.
 
 Please include the affected version, a reproduction `.oip` or URL if possible,
 and which invariant you believe is violated.
@@ -132,10 +134,5 @@ packages and publisher keys for users:
 ## Supported Versions
 
 OpenInstall is pre-1.0. Security fixes are made against the latest release and
-`main`. Pin to a released, SignPath-signed `.msi`; do not trust unsigned builds
-for production use.
-
----
-
-Free code signing provided by [SignPath.io](https://signpath.io), certificate by
-[SignPath Foundation](https://signpath.org).
+`main`. Windows code signing for public releases is planned, but not yet
+enabled; treat unsigned preview builds accordingly.

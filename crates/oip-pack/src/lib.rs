@@ -9,7 +9,7 @@
 //! through `oip-core` — [`build_oip_bytes`] self-validates the manifest it writes,
 //! and [`sign_oip_bytes`] self-checks the signature against the embedded key.
 //!
-//! It NEVER signs third-party payloads with the SignPath cert and has no
+//! It NEVER signs third-party payloads with the OpenInstall release cert and has no
 //! "silent install" behavior — it only packages and signs (brief §11).
 
 #![forbid(unsafe_code)]

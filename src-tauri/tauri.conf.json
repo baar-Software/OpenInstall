@@ -35,7 +35,7 @@
     "publisher": "OpenInstall",
     "category": "Utility",
     "shortDescription": "Verified Windows app store and installer for OpenInstall packages",
-    "longDescription": "OpenInstall is a Windows package manager, app store, and installer that imports app repos and installs openinstall:// apps only after verifying publisher signatures, file hashes, Authenticode status, and explicit user consent. Free code signing provided by SignPath.io, certificate by SignPath Foundation.",
+    "longDescription": "OpenInstall is a Windows package manager, app store, and installer that imports app repos and installs openinstall:// apps only after verifying publisher signatures, file hashes, Authenticode status, and explicit user consent.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

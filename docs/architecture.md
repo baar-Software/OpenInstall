@@ -116,7 +116,8 @@ still require package verification and an Install click.
 * Local run: `cargo tauri dev`
 * Local MSI: `cargo tauri build`
 * CI: formatting, Rust tests, clippy, and UI build on Windows.
-* Release: tag-triggered MSI build, SignPath signing, and GitHub release upload.
+* Release: tag-triggered MSI build and GitHub release upload. Windows code
+  signing is planned, but not yet enabled for public releases.
 
 ## See Also
 

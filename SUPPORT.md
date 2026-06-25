@@ -23,4 +23,7 @@ launch/update management.
 
 ## Security
 
-Do not report vulnerabilities in public issues. Follow [SECURITY.md](SECURITY.md).
+Do not report vulnerabilities in public issues, discussions, pull requests, or
+support threads. Use GitHub's private security advisory flow only:
+
+https://github.com/baar-Software/OpenInstall/security/advisories/new

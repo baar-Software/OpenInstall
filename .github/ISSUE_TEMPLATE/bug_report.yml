@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting a bug. For vulnerabilities, do not use this form; follow SECURITY.md.
+        Thanks for reporting a bug. For vulnerabilities, do not use this form. Use GitHub Security Advisories only.
   - type: input
     id: version
     attributes:
@@ -70,7 +70,7 @@ body:
     attributes:
       label: Checklist
       options:
-        - label: I am not reporting a security vulnerability publicly.
+        - label: I am not reporting a security vulnerability; those go through GitHub Security Advisories only.
           required: true
         - label: I searched existing issues first.
           required: true

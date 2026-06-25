@@ -1,16 +1,12 @@
 name: release
 
-# Build the Tauri MSI on a version tag, code-sign it on SignPath's HSM, and
-# attach the signed artifact to the GitHub Release.
+# Build the Tauri MSI on a version tag and attach the artifact to the GitHub
+# Release. Windows code signing is planned, but not yet enabled for public
+# releases.
 #
-# Trust model notes (do not "optimize" these away):
-#   * The private signing key NEVER exists in CI. The unsigned .msi is uploaded
-#     to SignPath, signed inside their Foundation HSM, and the signed copy is
-#     pulled back. No certificate or key material is stored in this repo or in
-#     GitHub secrets - only an API token that authorizes a signing *request*.
-#   * `permissions: contents: write` is the only elevated grant, needed solely
-#     to create/attach the Release. Nothing here disables AV/SmartScreen or
-#     touches the verify-then-consent runtime path.
+# Trust model note: `permissions: contents: write` is the only elevated grant,
+# needed solely to create/attach the Release. Nothing here disables
+# AV/SmartScreen or touches the verify-then-consent runtime path.
 
 on:
   push:
@@ -27,10 +23,10 @@ concurrency:
 
 jobs:
   release:
-    name: Build, sign, and publish MSI
+    name: Build and publish MSI
     runs-on: windows-latest
     permissions:
-      # Required to create the GitHub Release and upload the signed asset.
+      # Required to create the GitHub Release and upload the MSI asset.
       contents: write
     steps:
       - name: Checkout
@@ -81,12 +77,12 @@ jobs:
             exit 1
           }
           New-Item -ItemType Directory -Force -Path unsigned | Out-Null
-          Copy-Item $msi.FullName -Destination "unsigned/$($msi.Name)"
-          Write-Output "msi-name=$($msi.Name)" >> $env:GITHUB_OUTPUT
-          Write-Output "Staged $($msi.Name)"
+          $unsignedName = "$($msi.BaseName)-unsigned$($msi.Extension)"
+          Copy-Item $msi.FullName -Destination "unsigned/$unsignedName"
+          Write-Output "msi-name=$unsignedName" >> $env:GITHUB_OUTPUT
+          Write-Output "Staged $unsignedName"
 
-      - name: Upload unsigned MSI artifact
-        id: upload-unsigned
+      - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
         with:
           name: openinstall-msi-unsigned
@@ -94,29 +90,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Submit the uploaded artifact to SignPath. The .msi is signed inside the
-      # SignPath Foundation HSM and the signed copy is downloaded into `signed/`.
-      - name: Sign MSI with SignPath
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: openinstall
-          signing-policy-slug: release-signing
-          github-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: signed
-
-      - name: Upload signed MSI artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: openinstall-msi-signed
-          path: signed/*.msi
-          if-no-files-found: error
-
-      - name: Attach signed MSI to GitHub Release
+      - name: Attach MSI to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: signed/*.msi
+          files: unsigned/*.msi
           fail_on_unmatched_files: true
           generate_release_notes: true

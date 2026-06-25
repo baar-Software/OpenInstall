@@ -16,10 +16,6 @@ consent dialog, and only then installs the verified files itself.
 OpenInstall does **not** bypass Windows security policy, and it does **not**
 download and run random `Setup.exe` installers.
 
-> Free code signing for OpenInstall releases is provided by
-> [SignPath.io](https://signpath.io), certificate by
-> [SignPath Foundation](https://signpath.org).
-
 ## Why OpenInstall Exists
 
 Windows app installation is often noisy: browser download warnings, unknown
@@ -150,7 +146,7 @@ Current highlights:
   app ids, publisher names, and publisher keys.
 * Authenticode status disclosure.
 * Native v1 package creator for signed app-folder packages.
-* SignPath-backed release signing workflow.
+* Tag-triggered release workflow for MSI artifacts.
 
 ## Building From Source
 
@@ -186,9 +182,8 @@ The MSI is written under:
 target/release/bundle/msi/
 ```
 
-Official release MSIs are signed by the SignPath Foundation through
-[.github/workflows/release.yml](.github/workflows/release.yml). The private code
-signing key never exists in GitHub Actions.
+The release workflow currently builds MSI artifacts on version tags. Windows
+code signing is planned, but not yet enabled for public releases.
 
 ## Testing
 
