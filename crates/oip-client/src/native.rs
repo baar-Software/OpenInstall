@@ -111,7 +111,7 @@ pub struct NativeInstallResult {
     /// Full path to the installed entry-point file.
     pub entry_path: String,
     pub launch_target: Option<String>,
-    /// The app's real icon as a `data:image/png;base64,…` URL, if extractable.
+    /// The app's real icon as a `data:image/x-icon;base64,…` URL, if extractable.
     pub icon: Option<String>,
 }
 
@@ -358,46 +358,50 @@ fn create_shortcuts(manifest: &NativeManifest, install_dir: &Path) -> Result<Opt
 }
 
 fn create_shortcut(link: &Path, target: &Path, working_dir: &Path) -> Result<()> {
-    let script = r#"$shell = New-Object -ComObject WScript.Shell
-$s = $shell.CreateShortcut($env:OI_LINK)
-$s.TargetPath = $env:OI_TARGET
-$s.WorkingDirectory = $env:OI_WORKDIR
-$s.Save()"#;
-    let status = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", script])
-        .env("OI_LINK", link)
-        .env("OI_TARGET", target)
-        .env("OI_WORKDIR", working_dir)
-        .status()
-        .context("creating Start Menu shortcut")?;
-    if !status.success() {
-        bail!("creating Start Menu shortcut failed");
-    }
+    // Pure-Rust .lnk writer: no PowerShell / WScript.Shell child process.
+    let mut shortcut = mslnk::ShellLink::new(target)
+        .with_context(|| format!("preparing Start Menu shortcut to {}", target.display()))?;
+    shortcut.set_working_dir(Some(working_dir.to_string_lossy().into_owned()));
+    shortcut
+        .create_lnk(link)
+        .with_context(|| format!("writing Start Menu shortcut {}", link.display()))?;
     Ok(())
 }
 
+/// Write the Add/Remove Programs (uninstall) entry directly via the Win32 registry
+/// API — no `reg.exe` child process. Per-user under HKCU, never HKLM.
+#[cfg(windows)]
 fn write_uninstall_entry(manifest: &NativeManifest, install_dir: &Path) -> Result<()> {
-    let key = format!(
-        r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\{}",
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    let path = format!(
+        r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{}",
         manifest.id
     );
-    reg_add(&key, "DisplayName", &manifest.name)?;
-    reg_add(&key, "DisplayVersion", &manifest.version)?;
-    reg_add(&key, "Publisher", &manifest.publisher.name)?;
-    reg_add(&key, "InstallLocation", &install_dir.to_string_lossy())?;
-    reg_add(&key, "NoModify", "1")?;
-    reg_add(&key, "NoRepair", "1")?;
+    let (key, _) = RegKey::predef(HKEY_CURRENT_USER)
+        .create_subkey(&path)
+        .with_context(|| format!("creating uninstall registry key for {}", manifest.id))?;
+    key.set_value("DisplayName", &manifest.name)
+        .context("writing DisplayName")?;
+    key.set_value("DisplayVersion", &manifest.version)
+        .context("writing DisplayVersion")?;
+    key.set_value("Publisher", &manifest.publisher.name)
+        .context("writing Publisher")?;
+    key.set_value(
+        "InstallLocation",
+        &install_dir.to_string_lossy().into_owned(),
+    )
+    .context("writing InstallLocation")?;
+    key.set_value("NoModify", &1u32)
+        .context("writing NoModify")?;
+    key.set_value("NoRepair", &1u32)
+        .context("writing NoRepair")?;
     Ok(())
 }
 
-fn reg_add(key: &str, name: &str, value: &str) -> Result<()> {
-    let status = std::process::Command::new("reg")
-        .args(["add", key, "/v", name, "/d", value, "/f"])
-        .status()
-        .with_context(|| format!("writing uninstall metadata {name}"))?;
-    if !status.success() {
-        bail!("writing uninstall metadata `{name}` failed");
-    }
+#[cfg(not(windows))]
+fn write_uninstall_entry(_manifest: &NativeManifest, _install_dir: &Path) -> Result<()> {
     Ok(())
 }
 

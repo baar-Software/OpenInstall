@@ -2,11 +2,11 @@
 //! (`%APPDATA%\OpenInstall\installed.json`), powering the in-app launchpad.
 //!
 //! This is a *record* of what OpenInstall installed and from where — it does not
-//! own the third-party app's files. For launching, we do a best-effort lookup of
-//! the app's Start Menu shortcut (which the app's own installer created) and run
-//! that, exactly as if the user clicked it in the Start Menu.
+//! own the third-party app's files. Launching runs the installed entry-point
+//! executable directly (no shell, no `cmd.exe`); its files were verified at
+//! install time.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{anyhow, bail, Context, Result};
 use oip_core::TrustLevel;
@@ -42,7 +42,7 @@ pub struct InstalledApp {
     /// Full path to the installed entry-point file (direct launch / icon source).
     #[serde(default)]
     pub entry_path: Option<String>,
-    /// The app's real icon as a `data:image/png;base64,…` URL, captured at install.
+    /// The app's real icon as a `data:image/x-icon;base64,…` URL, captured at install.
     #[serde(default)]
     pub icon: Option<String>,
 }
@@ -82,9 +82,10 @@ pub fn list() -> Vec<InstalledApp> {
 }
 
 /// Fill in a real icon for any app that doesn't have one yet (e.g. installed
-/// before icon capture existed) by extracting it from the entry-point file or the
-/// Start Menu shortcut, cache it, and return the updated list. This may spawn
-/// PowerShell, so it runs as a background step AFTER the launchpad has painted.
+/// before icon capture existed) by extracting it from the entry-point file, cache
+/// it, and return the updated list. Icon extraction is in-process (no external
+/// processes) but still runs as a background step AFTER the launchpad has painted
+/// so the first render is never delayed.
 pub fn backfill_icons() -> Vec<InstalledApp> {
     let mut file = read_file();
     let mut changed = false;
@@ -138,110 +139,34 @@ pub fn forget(id: &str) -> Result<()> {
     write_file(&file)
 }
 
-/// Launch an installed app via its (re-)discovered Start Menu shortcut.
+/// Launch an installed app by running its installed entry-point executable
+/// directly — no shell, no `cmd.exe`, no argument parsing. The files were verified
+/// (publisher signature + per-file hash) at install time.
 pub fn launch(id: &str) -> Result<()> {
-    let mut file = read_file();
+    let file = read_file();
     let app = file
         .apps
-        .iter_mut()
+        .iter()
         .find(|a| a.id == id)
         .ok_or_else(|| anyhow!("no installed app with id `{id}`"))?;
 
-    // Prefer the stored target if it still exists, else re-discover by name.
-    let target = match &app.launch_target {
-        Some(t) if Path::new(t).exists() => t.clone(),
-        _ => {
-            let found = find_launch_target(&app.name).ok_or_else(|| {
-                anyhow!(
-                    "couldn't find a Start Menu shortcut to launch `{}`",
-                    app.name
-                )
-            })?;
-            app.launch_target = Some(found.clone());
-            let _ = write_file(&file); // best-effort cache update
-            found
-        }
-    };
+    let entry = app
+        .entry_path
+        .as_deref()
+        .filter(|p| Path::new(p).exists())
+        .ok_or_else(|| {
+            anyhow!(
+                "couldn't find the installed files for `{}` to launch",
+                app.name
+            )
+        })?;
 
-    launch_shortcut(&target)
-}
-
-/// ShellExecute-equivalent: open a `.lnk` (or any path) with its default handler,
-/// detached. `cmd /C start "" "<target>"` runs the shortcut as the user would.
-fn launch_shortcut(target: &str) -> Result<()> {
-    std::process::Command::new("cmd")
-        .args(["/C", "start", "", target])
-        .spawn()
-        .with_context(|| format!("launching {target}"))?;
+    let mut cmd = std::process::Command::new(entry);
+    if let Some(dir) = Path::new(entry).parent() {
+        cmd.current_dir(dir);
+    }
+    cmd.spawn().with_context(|| format!("launching {entry}"))?;
     Ok(())
-}
-
-/// Best-effort search of the user and machine Start Menu for a `.lnk` whose name
-/// matches `app_name`. Prefers an exact (case-insensitive) stem match, then a
-/// contains-match. Bounded recursion.
-pub fn find_launch_target(app_name: &str) -> Option<String> {
-    let needle = app_name.trim().to_lowercase();
-    if needle.is_empty() {
-        return None;
-    }
-
-    let mut roots: Vec<PathBuf> = Vec::new();
-    if let Ok(pd) = std::env::var("ProgramData") {
-        roots.push(PathBuf::from(pd).join("Microsoft/Windows/Start Menu/Programs"));
-    }
-    if let Ok(ad) = std::env::var("APPDATA") {
-        roots.push(PathBuf::from(ad).join("Microsoft/Windows/Start Menu/Programs"));
-    }
-
-    let mut exact: Option<String> = None;
-    let mut contains: Option<String> = None;
-    for root in roots {
-        collect_lnks(&root, 0, &needle, &mut exact, &mut contains);
-        if exact.is_some() {
-            break;
-        }
-    }
-    exact.or(contains)
-}
-
-fn collect_lnks(
-    dir: &Path,
-    depth: usize,
-    needle: &str,
-    exact: &mut Option<String>,
-    contains: &mut Option<String>,
-) {
-    if depth > 4 || exact.is_some() {
-        return;
-    }
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_lnks(&path, depth + 1, needle, exact, contains);
-            if exact.is_some() {
-                return;
-            }
-        } else if path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.eq_ignore_ascii_case("lnk"))
-            == Some(true)
-        {
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                let stem_l = stem.to_lowercase();
-                if stem_l == *needle {
-                    *exact = Some(path.to_string_lossy().into_owned());
-                    return;
-                }
-                if contains.is_none() && (stem_l.contains(needle) || needle.contains(&stem_l)) {
-                    *contains = Some(path.to_string_lossy().into_owned());
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]

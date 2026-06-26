@@ -2,8 +2,8 @@ name: ci
 
 # Fast feedback on every push and PR: the workspace test suite, formatting,
 # clippy lint gate, and a UI build. Runs on Windows because OpenInstall is a
-# Windows-only app (MotW ADS, Authenticode inspection, SChannel TLS) and several tests
-# and code paths are Windows-specific.
+# Windows-only app (MotW ADS, registry/shortcut integration, SChannel TLS) and
+# several tests and code paths are Windows-specific.
 
 on:
   push:

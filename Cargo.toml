@@ -19,7 +19,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 repository = "https://github.com/baar-Software/OpenInstall"
@@ -61,6 +61,10 @@ dirs = "6"
 url = "2"
 rand = "0.10"
 base64 = "0.22"
+# native Windows integration, all in-process (NO PowerShell/cmd/reg child processes):
+pelite = "0.10"    # pure-Rust PE parsing: version info + icon resources
+mslnk = "0.1"      # pure-Rust .lnk (Start Menu shortcut) writer
+winreg = "0.52"    # safe wrapper over the Win32 registry API (Windows-only)
 # tauri
 tauri = { version = "2", features = [] }
 tauri-build = { version = "2", features = [] }
