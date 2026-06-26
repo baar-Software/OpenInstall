@@ -5,6 +5,16 @@ All notable changes to OpenInstall will be documented here.
 This project follows a pre-1.0 release process. Breaking changes may happen while
 the native `.oip` package format and authoring tools stabilize.
 
+## 0.5.0 — 2026-06-26
+
+### Added
+
+* Uninstall apps from the launchpad. The × on an app tile now **fully uninstalls**
+  it after a confirmation prompt: it deletes the app's files (all installed
+  versions), removes its Start Menu shortcut, and removes its Add/Remove Programs
+  entry — instead of only dropping it from the list. The app stays listed if the
+  files can't be removed (e.g. it is still running), with a clear error.
+
 ## 0.4.0 — 2026-06-26
 
 ### Security

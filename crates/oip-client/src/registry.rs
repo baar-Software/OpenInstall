@@ -128,7 +128,7 @@ pub fn record(app: InstalledApp) -> Result<()> {
     write_file(&file)
 }
 
-/// Remove an app from the launchpad list (does NOT uninstall the app).
+/// Remove an app from the launchpad list (does NOT delete its files).
 pub fn forget(id: &str) -> Result<()> {
     let mut file = read_file();
     let before = file.apps.len();
@@ -136,6 +136,23 @@ pub fn forget(id: &str) -> Result<()> {
     if file.apps.len() == before {
         bail!("no installed app with id `{id}`");
     }
+    write_file(&file)
+}
+
+/// Fully uninstall an app: delete its installed files (all versions), its Start
+/// Menu shortcut, and its Add/Remove Programs entry, then drop it from the
+/// launchpad list. Fails (and keeps the app listed) if the files can't be removed,
+/// e.g. the app is still running.
+pub fn uninstall(id: &str) -> Result<()> {
+    let mut file = read_file();
+    let Some(pos) = file.apps.iter().position(|a| a.id == id) else {
+        bail!("no installed app with id `{id}`");
+    };
+    let app = file.apps[pos].clone();
+
+    crate::native::uninstall(&app.id, app.launch_target.as_deref())?;
+
+    file.apps.remove(pos);
     write_file(&file)
 }
 

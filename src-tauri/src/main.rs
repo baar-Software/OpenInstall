@@ -10,7 +10,7 @@
 //! Commands:
 //!   resolve_oip / acknowledge_risk / confirm_install   — the verify→consent→install flow
 //!   get_settings / set_developer_mode                  — opt-in localhost (dev mode)
-//!   list_installed / launch_app / forget_app           — the launchpad
+//!   list_installed / launch_app / uninstall_app        — the launchpad
 //!   generate_keypair / build_package                   — the GUI native package author
 
 use oip_client::registry::InstalledApp;
@@ -72,9 +72,11 @@ fn launch_app(id: String) -> Result<(), String> {
     oip_client::registry::launch(&id).map_err(|e| e.to_string())
 }
 
+/// Fully uninstall an app: delete its files, Start Menu shortcut, and uninstall
+/// registry entry, then remove it from the launchpad. The UI confirms first.
 #[tauri::command]
-fn forget_app(id: String) -> Result<(), String> {
-    oip_client::registry::forget(&id).map_err(|e| e.to_string())
+fn uninstall_app(id: String) -> Result<(), String> {
+    oip_client::registry::uninstall(&id).map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -426,7 +428,7 @@ fn main() {
             set_developer_mode,
             list_installed,
             launch_app,
-            forget_app,
+            uninstall_app,
             list_repo_sources,
             add_repo_source,
             remove_repo_source,

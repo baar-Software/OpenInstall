@@ -210,17 +210,57 @@ pub fn install(package: &VerifiedNativePackage) -> Result<NativeInstallResult> {
     })
 }
 
-pub fn app_install_dir(manifest: &NativeManifest) -> Result<PathBuf> {
+/// Per-user root directory holding ALL installed versions of app `id`
+/// (`%LOCALAPPDATA%\OpenInstall\Apps\<id>`). `id` is a validated reverse-DNS id,
+/// so it is a single safe path component (no separators, no `..`).
+fn app_root_dir(id: &str) -> Result<PathBuf> {
     let base = std::env::var("LOCALAPPDATA")
         .map(PathBuf::from)
         .or_else(|_| data_dir().ok_or(std::env::VarError::NotPresent))
         .map_err(|_| anyhow!("no per-user app data directory available"))?;
-    Ok(base
-        .join("OpenInstall")
-        .join("Apps")
-        .join(&manifest.id)
-        .join(&manifest.version))
+    Ok(base.join("OpenInstall").join("Apps").join(id))
 }
+
+pub fn app_install_dir(manifest: &NativeManifest) -> Result<PathBuf> {
+    Ok(app_root_dir(&manifest.id)?.join(&manifest.version))
+}
+
+/// Fully remove an installed app: delete its files (all versions), its Start Menu
+/// shortcut, and its Add/Remove Programs entry. The shortcut and registry steps
+/// are best-effort; deleting the files is the step that can hard-fail (e.g. the
+/// app is still running and holds a lock on its `.exe`).
+pub fn uninstall(id: &str, shortcut: Option<&str>) -> Result<()> {
+    let root = app_root_dir(id)?;
+    if root.exists() {
+        std::fs::remove_dir_all(&root).with_context(|| {
+            format!(
+                "removing {} — close the app if it is running, then try again",
+                root.display()
+            )
+        })?;
+    }
+    if let Some(link) = shortcut {
+        let path = Path::new(link);
+        if path.exists() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+    remove_uninstall_entry(id);
+    Ok(())
+}
+
+/// Delete the app's Add/Remove Programs entry from HKCU. Best-effort.
+#[cfg(windows)]
+fn remove_uninstall_entry(id: &str) {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    let path = format!(r"Software\Microsoft\Windows\CurrentVersion\Uninstall\{id}");
+    let _ = RegKey::predef(HKEY_CURRENT_USER).delete_subkey_all(path);
+}
+
+#[cfg(not(windows))]
+fn remove_uninstall_entry(_id: &str) {}
 
 fn validate_manifest(manifest: &NativeManifest) -> Result<()> {
     if manifest.schema != 1 {
@@ -600,5 +640,40 @@ mod tests {
         assert!(validate_relative_path("../escape.exe").is_err());
         assert!(validate_relative_path("nested\\app.exe").is_err());
         assert!(validate_relative_path("nested/app.exe").is_ok());
+    }
+
+    #[test]
+    fn uninstall_removes_all_installed_files() {
+        let _guard = crate::paths::test_env_guard();
+        let prev = std::env::var("LOCALAPPDATA").ok();
+        let tmp = tempfile::tempdir().unwrap();
+        std::env::set_var("LOCALAPPDATA", tmp.path());
+
+        let version_dir = tmp
+            .path()
+            .join("OpenInstall")
+            .join("Apps")
+            .join("com.example.app")
+            .join("1.0.0");
+        std::fs::create_dir_all(&version_dir).unwrap();
+        std::fs::write(version_dir.join("App.exe"), b"binary").unwrap();
+        assert!(version_dir.exists());
+
+        uninstall("com.example.app", None).unwrap();
+
+        let root = tmp
+            .path()
+            .join("OpenInstall")
+            .join("Apps")
+            .join("com.example.app");
+        assert!(!root.exists(), "the whole app should be deleted");
+
+        // Uninstalling something already gone is a no-op success.
+        uninstall("com.example.app", None).unwrap();
+
+        match prev {
+            Some(v) => std::env::set_var("LOCALAPPDATA", v),
+            None => std::env::remove_var("LOCALAPPDATA"),
+        }
     }
 }

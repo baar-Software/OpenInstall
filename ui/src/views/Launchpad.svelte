@@ -1,6 +1,7 @@
 <script>
   import { onMount } from "svelte";
-  import { backfillIcons, forgetApp, launchApp, listInstalled } from "../lib/api.js";
+  import { ask } from "@tauri-apps/plugin-dialog";
+  import { backfillIcons, launchApp, listInstalled, uninstallApp } from "../lib/api.js";
   import { formatUnixSeconds } from "../lib/format.js";
   import { hostFromSourceUrl } from "../lib/url.js";
   import Logo from "../components/Logo.svelte";
@@ -77,13 +78,21 @@
     }
   }
 
-  async function onForget(app) {
+  async function onUninstall(app) {
+    const confirmed = await ask(
+      `Delete ${app.name} and all of its files?\n\nThis removes the app from your computer and cannot be undone.`,
+      { title: "Uninstall app", kind: "warning", okLabel: "Uninstall", cancelLabel: "Cancel" },
+    );
+    if (!confirmed) return;
+    busyId = app.id;
     error = "";
     try {
-      await forgetApp(app.id);
+      await uninstallApp(app.id);
       await load();
     } catch (e) {
-      error = typeof e === "string" ? e : String(e);
+      error = `Could not uninstall ${app.name}: ${typeof e === "string" ? e : String(e)}`;
+    } finally {
+      busyId = "";
     }
   }
 
@@ -156,9 +165,10 @@
           <article class="tile panel">
             <button
               class="forget"
-              title="Remove from this list (does not uninstall)"
-              aria-label="Remove {app.name}"
-              onclick={() => onForget(app)}>×</button
+              title="Uninstall {app.name} (deletes the app)"
+              aria-label="Uninstall {app.name}"
+              onclick={() => onUninstall(app)}
+              disabled={busyId === app.id}>×</button
             >
             <div class="head">
               {#if app.icon}

@@ -18,7 +18,8 @@ export const setDeveloperMode = (enabled) =>
 export const listInstalled = () => invoke("list_installed");
 export const backfillIcons = () => invoke("backfill_icons");
 export const launchApp = (id) => invoke("launch_app", { id });
-export const forgetApp = (id) => invoke("forget_app", { id });
+// Fully uninstall: deletes the app's files, shortcut, and uninstall entry.
+export const uninstallApp = (id) => invoke("uninstall_app", { id });
 
 // --- OpenInstall repositories ---
 export const listRepoSources = () => invoke("list_repo_sources");
