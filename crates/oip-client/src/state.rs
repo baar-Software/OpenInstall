@@ -1,7 +1,7 @@
 //! Backend state: the single-use, time-limited install-token store.
 //!
-//! This is the mechanism that makes "install without consent" unrepresentable
-//! `resolve_oip` mints a token bound to already-verified bytes;
+//! This is the mechanism that makes "install without consent" unrepresentable:
+//! `resolve_oip` mints a token bound to an already-verified package;
 //! `confirm_install` can only act on a valid token. Tokens are single-use and
 //! expire, so they cannot be replayed or forged.
 
@@ -9,24 +9,19 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use oip_core::{Manifest, PayloadType, TrustLevel};
+use oip_core::TrustLevel;
 
 use crate::native::VerifiedNativePackage;
 
 /// How long a minted token remains valid.
 pub const TOKEN_TTL: Duration = Duration::from_secs(300); // 5 minutes
 
-/// A verified-but-not-yet-installed package, held in memory behind a token.
-/// The payload bytes live here (NOT on a runnable disk location) until the user
-/// consents (invariant #1).
+/// A verified-but-not-yet-installed native package, held in memory behind a token
+/// until the user consents (invariant #1). The package bytes live here, never on a
+/// runnable disk location, until `confirm` copies them into the per-user app dir.
 #[derive(Debug)]
 pub struct PendingInstall {
-    pub native: Option<VerifiedNativePackage>,
-    pub payload: Vec<u8>,
-    pub payload_type: PayloadType,
-    pub file_name: String,
-    pub silent_args: String,
-    pub manifest: Manifest,
+    pub package: VerifiedNativePackage,
     pub source_url: String,
     pub trust: TrustLevel,
     pub created_at: Instant,
@@ -111,31 +106,38 @@ pub fn new_token() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use oip_core::{Manifest, Payload, PayloadType};
+    use crate::native::{NativeManifest, NativePermissions, NativePublisher};
 
-    fn dummy_pending(trust: TrustLevel) -> PendingInstall {
-        PendingInstall {
-            native: None,
-            payload: vec![1, 2, 3],
-            payload_type: PayloadType::Exe,
-            file_name: "Setup.exe".to_string(),
-            silent_args: "/S".to_string(),
-            manifest: Manifest {
+    fn dummy_package() -> VerifiedNativePackage {
+        VerifiedNativePackage {
+            manifest: NativeManifest {
                 schema: 1,
                 id: "com.example.app".to_string(),
                 name: "App".to_string(),
-                publisher: "Dev".to_string(),
                 version: "1.0.0".to_string(),
-                homepage: String::new(),
-                payload: Payload {
-                    file: "payload/Setup.exe".to_string(),
-                    payload_type: PayloadType::Exe,
-                    hash_blake3: "0".repeat(64),
-                    hash_sha256: "0".repeat(64),
-                    silent_args: "/S".to_string(),
+                publisher: NativePublisher {
+                    name: "Dev".to_string(),
+                    key: "minisign:RWtest".to_string(),
+                    website: String::new(),
                 },
-                publisher_key: None,
+                entry: "App.exe".to_string(),
+                install_mode: "perUser".to_string(),
+                requires_admin: false,
+                files: Vec::new(),
+                permissions: NativePermissions::default(),
+                shortcuts: Vec::new(),
             },
+            files: Vec::new(),
+            trust: TrustLevel::Verified,
+            public_key: "RWtest".to_string(),
+            key_fingerprint: "RWtest".to_string(),
+            package_size: 0,
+        }
+    }
+
+    fn dummy_pending(trust: TrustLevel) -> PendingInstall {
+        PendingInstall {
+            package: dummy_package(),
             source_url: "https://example.com/app.oip".to_string(),
             trust,
             created_at: Instant::now(),

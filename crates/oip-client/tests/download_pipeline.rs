@@ -1,7 +1,8 @@
-//! End-to-end: download the committed `sample.oip` fixture over a real localhost
-//! socket, then run the full client verification pipeline on the downloaded bytes
-//! and write Mark-of-the-Web. This exercises `resolver::download` + the
-//! `oip-core` verify chain + the MotW writer together on a real signed package.
+//! End-to-end: build a signed native `.oip` in-process, serve it over a real
+//! localhost socket, then run the client's download + native verification
+//! pipeline on the downloaded bytes. Exercises `resolver::download`, the native
+//! package verifier, and the full `resolve()` path together — hermetically (keys
+//! and packages are minted in-process; no network, no committed secrets).
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -26,57 +27,50 @@ fn serve_once(body: Vec<u8>) -> u16 {
     port
 }
 
-fn fixture_bytes() -> Vec<u8> {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/sample.oip");
-    std::fs::read(path).expect("read fixtures/sample.oip")
+/// Build a signed native package (`manifest.json` + `files/` + signature).
+fn native_package(id: &str) -> Vec<u8> {
+    let kp = oip_pack::generate_keypair(None).expect("keygen");
+    let meta = oip_pack::NativeManifestMeta {
+        id: id.to_string(),
+        name: "CoolApp".to_string(),
+        version: "1.4.2".to_string(),
+        publisher_name: "Example Dev".to_string(),
+        publisher_website: "https://coolapp.dev".to_string(),
+        entry: "CoolApp.exe".to_string(),
+        network: false,
+        shortcut_name: String::new(),
+    };
+    let files = vec![oip_pack::NativeFileInput {
+        path: "CoolApp.exe".to_string(),
+        bytes: b"MZ\x90\x00 fake but stable app bytes \x01\x02\x03".to_vec(),
+    }];
+    oip_pack::build_native_oip_bytes(&meta, &files, &kp.public_key_b64, &kp.secret_key_box, None)
+        .expect("build native package")
 }
 
 #[tokio::test]
-async fn download_then_verify_then_motw() {
-    let oip = fixture_bytes();
+async fn download_then_verify_native() {
+    let oip = native_package("com.example.coolapp");
     let port = serve_once(oip.clone());
-    let url = format!("http://127.0.0.1:{port}/sample.oip");
+    let url = format!("http://127.0.0.1:{port}/app.oip");
 
-    // 1. Real network download via the client's download path (mirror list of 1).
+    // Real network download via the client's download path (mirror list of 1).
     let bytes = oip_client::resolver::download(&[url], oip_client::resolver::MAX_OIP_BYTES)
         .await
         .expect("download");
-    assert_eq!(bytes, oip, "downloaded bytes must match the fixture");
+    assert_eq!(bytes, oip, "downloaded bytes must match what we served");
 
-    // 2. Open + verify the package exactly as resolve() does internally.
-    let pkg = oip_client::pkg::Package::from_bytes(&bytes).expect("open zip");
-    let manifest_bytes = pkg.manifest_bytes().expect("manifest").to_vec();
-    let manifest = oip_core::parse_manifest(&manifest_bytes).expect("parse");
-    let key = manifest.publisher_key.as_ref().expect("signed fixture");
-    let sig = pkg.signature_bytes().expect("signature present");
-    oip_core::verify_manifest_sig(&manifest_bytes, sig, &key.public_key).expect("sig verifies");
-    let payload = pkg.get(&manifest.payload.file).expect("payload");
-    oip_core::verify_payload(payload, &manifest).expect("payload verifies");
-    assert_eq!(
-        oip_core::evaluate_trust(&manifest, None),
-        oip_core::TrustLevel::VerifiedNewPublisher
-    );
-
-    // 3. Write the payload WITH Mark-of-the-Web, as confirm_install would, and
-    //    confirm the Zone.Identifier stream marks it Internet-zone.
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join(manifest.payload.file.replace('/', "_"));
-    std::fs::write(&path, payload).unwrap();
-    oip_client::motw::write_mark_of_the_web(&path, &manifest.homepage).unwrap();
-
-    let mut ads = path.as_os_str().to_os_string();
-    ads.push(":Zone.Identifier");
-    let zone = std::fs::read_to_string(&ads).expect("read Zone.Identifier");
-    assert!(
-        zone.contains("ZoneId=3"),
-        "MotW must mark Internet zone: {zone}"
-    );
+    // The downloaded bytes are a valid, signed native package (fail-closed verify).
+    let report = oip_pack::verify_native_oip_bytes(&bytes).expect("native package verifies");
+    assert_eq!(report.id, "com.example.coolapp");
+    assert!(report.signed);
+    assert_eq!(report.trust, oip_core::TrustLevel::VerifiedNewPublisher);
 }
 
 /// Developer Mode end-to-end: with the setting enabled, the full `resolve()` path
 /// accepts an `openinstall://localhost…` link, maps it to http, downloads from a
-/// real local server, verifies, and mints an install token — without weakening
-/// any verification. (This is the headline localhost/dev feature.)
+/// real local server, verifies the native package, and mints an install token —
+/// without weakening any verification.
 #[tokio::test]
 async fn dev_mode_resolves_localhost_end_to_end() {
     // Isolate persistent state to a temp dir and enable Developer Mode.
@@ -87,8 +81,8 @@ async fn dev_mode_resolves_localhost_end_to_end() {
     })
     .expect("save settings");
 
-    let port = serve_once(fixture_bytes());
-    let url = format!("openinstall://127.0.0.1:{port}/sample.oip");
+    let port = serve_once(native_package("com.example.coolapp"));
+    let url = format!("openinstall://127.0.0.1:{port}/app.oip");
 
     let state = oip_client::AppState::default();
     let result = oip_client::resolve(&url, &state).await.expect("resolve");

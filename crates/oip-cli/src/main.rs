@@ -190,7 +190,7 @@ fn build(a: BuildArgs) -> Result<()> {
 fn verify(a: VerifyArgs) -> Result<()> {
     let oip =
         std::fs::read(&a.package).with_context(|| format!("reading {}", a.package.display()))?;
-    let report = oip_pack::verify_oip_auto(&oip)?;
+    let report = oip_pack::verify_native_oip_bytes(&oip)?;
 
     println!("file hashes: OK");
     if report.signed {

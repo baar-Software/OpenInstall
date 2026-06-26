@@ -1,13 +1,14 @@
 //! # `oip-pack` — OpenInstall package authoring
 //!
-//! Build and sign `.oip` packages. Shared by `oip-cli` (developer CLI) and the
-//! OpenInstall GUI's "Create package" feature, so the bytes a developer ships are
-//! produced by exactly one code path.
+//! Build and sign native `.oip` packages (`manifest.json` + `files/` +
+//! `signatures/publisher.ed25519.sig`). Shared by `oip-cli` (developer CLI) and
+//! the OpenInstall GUI's "Create package" feature, so the bytes a developer ships
+//! are produced by exactly one code path.
 //!
-//! This crate is **byte-based and I/O-free**: callers read payloads / keys and
-//! write outputs; we only transform bytes. Everything produced here round-trips
-//! through `oip-core` — [`build_oip_bytes`] self-validates the manifest it writes,
-//! and [`sign_oip_bytes`] self-checks the signature against the embedded key.
+//! This crate is **byte-based and I/O-free** at its core: callers read app files /
+//! keys and write outputs; we only transform bytes. Everything produced by
+//! [`build_native_oip_bytes`] round-trips through `oip-core`: the signature is
+//! self-checked against the embedded key before the archive is returned.
 //!
 //! It NEVER signs third-party payloads with the OpenInstall release cert and has no
 //! "silent install" behavior — it only packages and signs (brief §11).
@@ -24,31 +25,13 @@ use sha2::{Digest, Sha256};
 use zip::write::{SimpleFileOptions, ZipWriter};
 use zip::{CompressionMethod, ZipArchive};
 
-const MANIFEST_NAME: &str = "manifest.toml";
-const SIG_NAME: &str = "manifest.minisig";
 const NATIVE_MANIFEST_NAME: &str = "manifest.json";
 const NATIVE_SIG_NAME: &str = "signatures/publisher.ed25519.sig";
-
-/// Manifest metadata supplied by the author. Hashes and the payload path are
-/// filled in by [`build_oip_bytes`].
-#[derive(Debug, Clone)]
-pub struct ManifestMeta {
-    pub id: String,
-    pub name: String,
-    pub publisher: String,
-    pub version: String,
-    /// May be empty.
-    pub homepage: String,
-    /// `"exe"` or `"msi"`.
-    pub payload_type: String,
-    /// May be empty.
-    pub silent_args: String,
-}
 
 /// A freshly generated minisign keypair, as the text you would store on disk.
 #[derive(Debug, Clone)]
 pub struct GeneratedKeypair {
-    /// The bare `RW...` base64 key for `manifest.toml` `[publisher_key].public_key`.
+    /// The bare `RW...` base64 public key embedded in the manifest's publisher key.
     pub public_key_b64: String,
     /// Full `.pub` file contents (comment line + key).
     pub public_key_box: String,
@@ -81,38 +64,6 @@ pub struct NativeFileInput {
 // ---------------------------------------------------------------------------
 // Serializable manifest document (controls the exact bytes we write & sign).
 // ---------------------------------------------------------------------------
-
-#[derive(Serialize)]
-struct ManifestDoc {
-    schema: u32,
-    id: String,
-    name: String,
-    publisher: String,
-    version: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    homepage: String,
-    payload: PayloadDoc,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    publisher_key: Option<PublisherKeyDoc>,
-}
-
-#[derive(Serialize)]
-struct PayloadDoc {
-    file: String,
-    #[serde(rename = "type")]
-    payload_type: String,
-    hash_blake3: String,
-    hash_sha256: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    silent_args: String,
-}
-
-#[derive(Serialize)]
-struct PublisherKeyDoc {
-    #[serde(rename = "type")]
-    key_type: String,
-    public_key: String,
-}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -159,14 +110,6 @@ struct NativePermissionsDoc {
 struct NativeShortcutDoc {
     name: String,
     target: String,
-}
-
-impl ManifestDoc {
-    fn to_toml_bytes(&self) -> Result<Vec<u8>> {
-        Ok(toml::to_string_pretty(self)
-            .context("serializing manifest.toml")?
-            .into_bytes())
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -219,69 +162,6 @@ pub fn resolve_public_key(text: &str) -> Result<String> {
 // ---------------------------------------------------------------------------
 // build
 // ---------------------------------------------------------------------------
-
-/// Build a `.oip` (zip) from a payload and manifest metadata. Computes the
-/// BLAKE3 + SHA-256 pins, embeds `public_key` if given (resolved from RW/`.pub`
-/// text), and self-validates the manifest via `oip-core`.
-pub fn build_oip_bytes(
-    meta: &ManifestMeta,
-    payload: &[u8],
-    payload_file_name: &str,
-    public_key: Option<&str>,
-) -> Result<Vec<u8>> {
-    let payload_type = match meta.payload_type.as_str() {
-        "exe" => "exe",
-        "msi" => "msi",
-        other => bail!("invalid payload type `{other}` (expected exe or msi)"),
-    };
-    if payload.is_empty() {
-        bail!("payload is empty");
-    }
-    let file_name = payload_file_name.trim();
-    if file_name.is_empty() || file_name.contains(['/', '\\']) {
-        bail!("payload file name must be a bare file name");
-    }
-    let payload_zip_path = format!("payload/{file_name}");
-
-    let publisher_key = match public_key {
-        Some(input) => Some(PublisherKeyDoc {
-            key_type: "minisign".to_string(),
-            public_key: resolve_public_key(input)?,
-        }),
-        None => None,
-    };
-
-    let doc = ManifestDoc {
-        schema: 1,
-        id: meta.id.clone(),
-        name: meta.name.clone(),
-        publisher: meta.publisher.clone(),
-        version: meta.version.clone(),
-        homepage: meta.homepage.clone(),
-        payload: PayloadDoc {
-            file: payload_zip_path.clone(),
-            payload_type: payload_type.to_string(),
-            hash_blake3: blake3::hash(payload).to_hex().to_string(),
-            hash_sha256: hex::encode(Sha256::digest(payload)),
-            silent_args: meta.silent_args.clone(),
-        },
-        publisher_key,
-    };
-
-    let manifest_bytes = doc.to_toml_bytes()?;
-
-    // Self-validate via the exact client code path; fail closed if invalid.
-    oip_core::parse_manifest(&manifest_bytes)
-        .map_err(|e| anyhow!("produced an invalid manifest: {e}"))?;
-
-    let mut zw = ZipWriter::new(Cursor::new(Vec::<u8>::new()));
-    let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-    zw.start_file(MANIFEST_NAME, opts)?;
-    zw.write_all(&manifest_bytes)?;
-    zw.start_file(&payload_zip_path, opts)?;
-    zw.write_all(payload)?;
-    Ok(zw.finish()?.into_inner())
-}
 
 /// Build and sign a native OpenInstall v1 `.oip`.
 ///
@@ -478,77 +358,11 @@ fn collect_dir(
     Ok(())
 }
 
-/// Whether a built (or read) `.oip` already carries a publisher key.
-pub fn is_signed(oip_bytes: &[u8]) -> Result<bool> {
-    let entries = read_zip_entries(oip_bytes)?;
-    let manifest = find_entry(&entries, MANIFEST_NAME)
-        .ok_or_else(|| anyhow!("package has no {MANIFEST_NAME}"))?;
-    Ok(oip_core::parse_manifest(manifest)?.publisher_key.is_some())
-}
-
 // ---------------------------------------------------------------------------
-// sign
+// verify
 // ---------------------------------------------------------------------------
 
-/// Sign the manifest inside a `.oip`, returning the new `.oip` bytes containing
-/// `manifest.minisig`. If `public_key_override` is given (RW/`.pub` text), it is
-/// embedded before signing; otherwise the manifest must already declare a key.
-/// Self-checks the signature against the embedded key via `oip-core`.
-pub fn sign_oip_bytes(
-    oip_bytes: &[u8],
-    secret_key_text: &str,
-    password: Option<String>,
-    public_key_override: Option<&str>,
-) -> Result<Vec<u8>> {
-    let mut entries = read_zip_entries(oip_bytes)?;
-    let original_manifest = find_entry(&entries, MANIFEST_NAME)
-        .ok_or_else(|| anyhow!("package has no {MANIFEST_NAME}"))?
-        .to_vec();
-
-    let final_manifest = match public_key_override {
-        Some(input) => {
-            let pk_b64 = resolve_public_key(input)?;
-            let parsed = oip_core::parse_manifest(&original_manifest)
-                .map_err(|e| anyhow!("manifest is invalid: {e}"))?;
-            let mut doc = doc_from_parsed(&parsed);
-            doc.publisher_key = Some(PublisherKeyDoc {
-                key_type: "minisign".to_string(),
-                public_key: pk_b64,
-            });
-            doc.to_toml_bytes()?
-        }
-        None => {
-            let parsed = oip_core::parse_manifest(&original_manifest)
-                .map_err(|e| anyhow!("manifest is invalid: {e}"))?;
-            if parsed.publisher_key.is_none() {
-                bail!("manifest has no [publisher_key]; supply a public key to embed one");
-            }
-            original_manifest.clone()
-        }
-    };
-
-    let embedded_pubkey = oip_core::parse_manifest(&final_manifest)
-        .ok()
-        .and_then(|m| m.publisher_key.map(|k| k.public_key))
-        .ok_or_else(|| anyhow!("manifest is missing a publisher key after preparation"))?;
-
-    let sk = load_secret_key_from_text(secret_key_text, password)?;
-    let sig_bytes = minisign::sign(None, &sk, Cursor::new(&final_manifest), None, None)
-        .map_err(|e| anyhow!("signing failed: {e}"))?
-        .to_string()
-        .into_bytes();
-
-    // Self-check via the exact client verification path.
-    oip_core::verify_manifest_sig(&final_manifest, &sig_bytes, &embedded_pubkey).map_err(|e| {
-        anyhow!("produced signature does not verify against the embedded key ({e}); the secret key likely does not match the public key")
-    })?;
-
-    upsert_entry(&mut entries, MANIFEST_NAME, final_manifest);
-    upsert_entry(&mut entries, SIG_NAME, sig_bytes);
-    write_zip_entries(&entries)
-}
-
-/// Outcome of [`verify_oip_bytes`].
+/// Outcome of [`verify_native_oip_bytes`].
 #[derive(Debug, Clone)]
 pub struct VerifyReport {
     pub id: String,
@@ -557,40 +371,6 @@ pub struct VerifyReport {
     pub signed: bool,
     pub key_fingerprint: Option<String>,
     pub trust: oip_core::TrustLevel,
-}
-
-/// Verify a `.oip` the way the OpenInstall client would (no local pin =>
-/// first-use). Returns an error on any verification failure (fail closed).
-pub fn verify_oip_bytes(oip_bytes: &[u8]) -> Result<VerifyReport> {
-    let entries = read_zip_entries(oip_bytes)?;
-    let manifest_bytes = find_entry(&entries, MANIFEST_NAME)
-        .ok_or_else(|| anyhow!("package has no {MANIFEST_NAME}"))?
-        .to_vec();
-    let manifest = oip_core::parse_manifest(&manifest_bytes)?;
-    let payload = find_entry(&entries, &manifest.payload.file)
-        .ok_or_else(|| anyhow!("payload `{}` missing from package", manifest.payload.file))?;
-    oip_core::verify_payload(payload, &manifest).context("payload verification")?;
-
-    let (signed, key_fingerprint) = match &manifest.publisher_key {
-        Some(key) => {
-            let sig = find_entry(&entries, SIG_NAME).ok_or_else(|| {
-                anyhow!("manifest declares a publisher key but {SIG_NAME} is missing")
-            })?;
-            oip_core::verify_manifest_sig(&manifest_bytes, sig, &key.public_key)
-                .context("signature verification")?;
-            (true, Some(oip_core::key_fingerprint(&key.public_key)))
-        }
-        None => (false, None),
-    };
-
-    Ok(VerifyReport {
-        id: manifest.id.clone(),
-        name: manifest.name.clone(),
-        version: manifest.version.clone(),
-        signed,
-        key_fingerprint,
-        trust: oip_core::evaluate_trust(&manifest, None),
-    })
 }
 
 #[derive(Deserialize)]
@@ -619,7 +399,7 @@ struct NativeFileRead {
 
 /// Verify a native (`manifest.json` + `files/`) `.oip` exactly as the client does:
 /// the publisher signature over `manifest.json`, then every file's SHA-256. Trust
-/// is first-use (no local pin on the dev side).
+/// is first-use (no local pin on the dev side). Fails closed on any mismatch.
 pub fn verify_native_oip_bytes(oip_bytes: &[u8]) -> Result<VerifyReport> {
     let entries = read_zip_entries(oip_bytes)?;
     let manifest_bytes = find_entry(&entries, NATIVE_MANIFEST_NAME)
@@ -661,17 +441,6 @@ pub fn verify_native_oip_bytes(oip_bytes: &[u8]) -> Result<VerifyReport> {
     })
 }
 
-/// Verify a `.oip`, auto-detecting native (`manifest.json`) vs legacy
-/// (`manifest.toml`).
-pub fn verify_oip_auto(oip_bytes: &[u8]) -> Result<VerifyReport> {
-    let entries = read_zip_entries(oip_bytes)?;
-    if find_entry(&entries, NATIVE_MANIFEST_NAME).is_some() {
-        verify_native_oip_bytes(oip_bytes)
-    } else {
-        verify_oip_bytes(oip_bytes)
-    }
-}
-
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
@@ -684,31 +453,6 @@ fn load_secret_key_from_text(text: &str, password: Option<String>) -> Result<Sec
         }
         None => SecretKey::from_unencrypted_box(sk_box).map_err(|e| {
             anyhow!("loading secret key: {e}. If it is password-protected, supply the password")
-        }),
-    }
-}
-
-fn doc_from_parsed(m: &oip_core::Manifest) -> ManifestDoc {
-    ManifestDoc {
-        schema: m.schema,
-        id: m.id.clone(),
-        name: m.name.clone(),
-        publisher: m.publisher.clone(),
-        version: m.version.clone(),
-        homepage: m.homepage.clone(),
-        payload: PayloadDoc {
-            file: m.payload.file.clone(),
-            payload_type: match m.payload.payload_type {
-                oip_core::PayloadType::Exe => "exe".to_string(),
-                oip_core::PayloadType::Msi => "msi".to_string(),
-            },
-            hash_blake3: m.payload.hash_blake3.clone(),
-            hash_sha256: m.payload.hash_sha256.clone(),
-            silent_args: m.payload.silent_args.clone(),
-        },
-        publisher_key: m.publisher_key.as_ref().map(|k| PublisherKeyDoc {
-            key_type: k.key_type.clone(),
-            public_key: k.public_key.clone(),
         }),
     }
 }
@@ -783,83 +527,13 @@ fn find_entry<'a>(entries: &'a [(String, Vec<u8>)], name: &str) -> Option<&'a [u
         .map(|(_, d)| d.as_slice())
 }
 
-fn upsert_entry(entries: &mut Vec<(String, Vec<u8>)>, name: &str, data: Vec<u8>) {
-    if let Some(slot) = entries.iter_mut().find(|(n, _)| n == name) {
-        slot.1 = data;
-    } else {
-        entries.push((name.to_string(), data));
-    }
-}
-
-fn write_zip_entries(entries: &[(String, Vec<u8>)]) -> Result<Vec<u8>> {
-    let mut zw = ZipWriter::new(Cursor::new(Vec::<u8>::new()));
-    let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-    for (name, data) in entries {
-        zw.start_file(name.as_str(), opts)?;
-        zw.write_all(data)?;
-    }
-    Ok(zw.finish()?.into_inner())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn meta() -> ManifestMeta {
-        ManifestMeta {
-            id: "com.example.coolapp".into(),
-            name: "CoolApp".into(),
-            publisher: "Example Dev".into(),
-            version: "1.4.2".into(),
-            homepage: "https://coolapp.dev".into(),
-            payload_type: "exe".into(),
-            silent_args: "/S".into(),
-        }
-    }
-
-    #[test]
-    fn build_sign_verify_roundtrip() {
-        let kp = generate_keypair(None).unwrap();
-        let payload = b"dummy installer payload";
-        let oip = build_oip_bytes(&meta(), payload, "Setup.exe", Some(&kp.public_key_b64)).unwrap();
-        assert!(is_signed(&oip).unwrap()); // key embedded
-        let signed = sign_oip_bytes(&oip, &kp.secret_key_box, None, None).unwrap();
-
-        let report = verify_oip_bytes(&signed).unwrap();
-        assert!(report.signed);
-        assert_eq!(report.trust, oip_core::TrustLevel::VerifiedNewPublisher);
-        assert_eq!(report.id, "com.example.coolapp");
-    }
-
-    #[test]
-    fn unsigned_build_is_unverified() {
-        let payload = b"dummy";
-        let oip = build_oip_bytes(&meta(), payload, "Setup.exe", None).unwrap();
-        let report = verify_oip_bytes(&oip).unwrap();
-        assert!(!report.signed);
-        assert_eq!(report.trust, oip_core::TrustLevel::Unverified);
-    }
-
     #[test]
     fn wrong_password_or_key_text_fails() {
         assert!(load_secret_key_from_text("not a key", None).is_err());
-    }
-
-    #[test]
-    fn invalid_payload_type_is_rejected() {
-        let mut m = meta();
-        m.payload_type = "bat".into();
-        assert!(build_oip_bytes(&m, b"x", "Setup.bat", None).is_err());
-    }
-
-    #[test]
-    fn encrypted_keypair_signs_with_password() {
-        let kp = generate_keypair(Some("hunter2".into())).unwrap();
-        assert!(kp.encrypted);
-        let oip = build_oip_bytes(&meta(), b"p", "Setup.exe", Some(&kp.public_key_b64)).unwrap();
-        let signed =
-            sign_oip_bytes(&oip, &kp.secret_key_box, Some("hunter2".into()), None).unwrap();
-        assert!(verify_oip_bytes(&signed).unwrap().signed);
     }
 
     #[test]
@@ -914,8 +588,44 @@ mod tests {
         assert_eq!(report.id, "com.example.native");
         assert_eq!(report.version, "2.1.0");
         assert_eq!(report.trust, oip_core::TrustLevel::VerifiedNewPublisher);
+    }
 
-        // verify_oip_auto detects the native format.
-        assert_eq!(verify_oip_auto(&oip).unwrap().id, "com.example.native");
+    #[test]
+    fn tampered_native_file_is_refused() {
+        let kp = generate_keypair(None).unwrap();
+        let meta = NativeManifestMeta {
+            id: "com.example.native".into(),
+            name: "Native App".into(),
+            version: "1.0.0".into(),
+            publisher_name: "Example Dev".into(),
+            publisher_website: String::new(),
+            entry: "Native.exe".into(),
+            network: false,
+            shortcut_name: String::new(),
+        };
+        let files = vec![NativeFileInput {
+            path: "Native.exe".into(),
+            bytes: b"MZ original bytes".to_vec(),
+        }];
+        let oip =
+            build_native_oip_bytes(&meta, &files, &kp.public_key_b64, &kp.secret_key_box, None)
+                .unwrap();
+
+        // Swap the file bytes inside the archive without re-signing the manifest.
+        let mut entries = read_zip_entries(&oip).unwrap();
+        for (name, data) in entries.iter_mut() {
+            if name == "files/Native.exe" {
+                *data = b"MZ tampered bytes".to_vec();
+            }
+        }
+        let mut zw = ZipWriter::new(Cursor::new(Vec::<u8>::new()));
+        let opts = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        for (name, data) in &entries {
+            zw.start_file(name.as_str(), opts).unwrap();
+            zw.write_all(data).unwrap();
+        }
+        let tampered = zw.finish().unwrap().into_inner();
+
+        assert!(verify_native_oip_bytes(&tampered).is_err());
     }
 }

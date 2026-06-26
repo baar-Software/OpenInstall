@@ -1,18 +1,16 @@
 //! In-memory `.oip` (zip) reader.
 //!
 //! Reads the whole archive into a name→bytes map so the verification pipeline can
-//! pull `manifest.toml`, `manifest.minisig`, and the payload without touching the
-//! filesystem (the bytes are downloaded, never written to a runnable location at
-//! resolve time — invariant #1).
+//! pull `manifest.json`, the publisher signature, and the package files without
+//! touching the filesystem (the bytes are downloaded, never written to a runnable
+//! location at resolve time — invariant #1).
 
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 
-pub const MANIFEST_NAME: &str = "manifest.toml";
 pub const NATIVE_MANIFEST_NAME: &str = "manifest.json";
-pub const SIG_NAME: &str = "manifest.minisig";
 pub const NATIVE_SIG_NAME: &str = "signatures/publisher.ed25519.sig";
 
 pub struct Package {
@@ -46,20 +44,11 @@ impl Package {
         self.entries.keys().map(|s| s.as_str())
     }
 
-    pub fn manifest_bytes(&self) -> Result<&[u8]> {
-        self.get(MANIFEST_NAME)
-            .ok_or_else(|| anyhow!("package has no {MANIFEST_NAME}"))
-    }
-
-    pub fn signature_bytes(&self) -> Option<&[u8]> {
-        self.get(SIG_NAME)
-    }
-
     pub fn native_manifest_bytes(&self) -> Option<&[u8]> {
         self.get(NATIVE_MANIFEST_NAME)
     }
 
     pub fn native_signature_bytes(&self) -> Option<&[u8]> {
-        self.get(NATIVE_SIG_NAME).or_else(|| self.get(SIG_NAME))
+        self.get(NATIVE_SIG_NAME)
     }
 }

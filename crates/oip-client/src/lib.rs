@@ -20,7 +20,6 @@
 
 pub mod appinfo;
 pub mod icon;
-pub mod installer;
 pub mod motw;
 pub mod native;
 mod paths;
@@ -32,7 +31,7 @@ pub mod settings;
 pub mod state;
 pub mod store;
 
-use oip_core::{Manifest, Payload, PayloadType, PublisherKey, TrustLevel};
+use oip_core::TrustLevel;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::time::Duration;
@@ -95,106 +94,18 @@ pub async fn resolve(url: &str, state: &AppState) -> Result<ResolveResult, Strin
     // 3. Open the zip in memory (nothing written to a runnable location, #1).
     let package = pkg::Package::from_bytes(&bytes).map_err(|e| e.to_string())?;
 
-    if package.native_manifest_bytes().is_some() {
-        return resolve_native(
-            &package,
-            bytes.len() as u64,
-            package_sha256,
-            source_url,
-            state,
-        )
-        .await;
+    // 4. Only native packages (manifest.json + files/) are installable.
+    if package.native_manifest_bytes().is_none() {
+        return Err("not an OpenInstall package: missing manifest.json".to_string());
     }
-
-    // 4. Parse + validate the manifest (fail closed, #2).
-    let manifest_bytes = package
-        .manifest_bytes()
-        .map_err(|e| e.to_string())?
-        .to_vec();
-    let manifest = oip_core::parse_manifest(&manifest_bytes).map_err(|e| e.to_string())?;
-
-    // 5. Locate the payload bytes named by the manifest.
-    let payload = package
-        .get(&manifest.payload.file)
-        .ok_or_else(|| {
-            format!(
-                "payload `{}` is missing from the package",
-                manifest.payload.file
-            )
-        })?
-        .to_vec();
-
-    // 6. Verify the payload against BOTH pinned hashes (fail closed, #2).
-    oip_core::verify_payload(&payload, &manifest).map_err(|e| e.to_string())?;
-
-    // 7. Signature + TOFU trust. Unsigned => Unverified, never "verified" (#8).
-    let (trust, key_fingerprint) = match &manifest.publisher_key {
-        Some(key) => {
-            let sig = package.signature_bytes().ok_or_else(|| {
-                "manifest declares a publisher key but manifest.minisig is missing".to_string()
-            })?;
-            // Signature must verify against the EMBEDDED key, else hard fail (#2).
-            oip_core::verify_manifest_sig(&manifest_bytes, sig, &key.public_key)
-                .map_err(|e| e.to_string())?;
-            // TOFU: compare embedded key against the pinned key for this id (#3).
-            let pinned = store::load_pin(&manifest.id);
-            (
-                oip_core::evaluate_trust(&manifest, pinned.as_ref()),
-                oip_core::key_fingerprint(&key.public_key),
-            )
-        }
-        None => (TrustLevel::Unverified, String::new()),
-    };
-
-    // 8. Local revocation blocklist (fail closed, #2).
-    let pub_key = manifest
-        .publisher_key
-        .as_ref()
-        .map(|k| k.public_key.as_str());
-    if store::is_blocked(&store::BlockSubject {
-        package_sha256: Some(&package_sha256),
-        payload_hash: Some(&manifest.payload.hash_blake3),
-        app_id: Some(&manifest.id),
-        publisher_name: Some(&manifest.publisher),
-        publisher_key: pub_key,
-        ..store::BlockSubject::default()
-    }) {
-        return Err("this package is on the OpenInstall revocation blocklist".to_string());
-    }
-
-    let file_name = basename(&manifest.payload.file);
-
-    // 9. Mint a single-use token bound to the verified bytes; STOP here (#1).
-    let token = state::new_token();
-    let payload_size = payload.len() as u64;
-    state.insert(
-        token.clone(),
-        PendingInstall {
-            native: None,
-            payload,
-            payload_type: manifest.payload.payload_type,
-            file_name,
-            silent_args: manifest.payload.silent_args.clone(),
-            manifest: manifest.clone(),
-            source_url: source_url.clone(),
-            trust,
-            created_at: std::time::Instant::now(),
-            acknowledged: false,
-        },
-    );
-
-    Ok(ResolveResult {
-        id: manifest.id,
-        name: manifest.name,
-        publisher: manifest.publisher,
-        version: manifest.version,
-        homepage: manifest.homepage,
+    resolve_native(
+        &package,
+        bytes.len() as u64,
+        package_sha256,
         source_url,
-        trust,
-        key_fingerprint,
-        payload_size,
-        install_token: token,
-    })
+        state,
+    )
+    .await
 }
 
 async fn resolve_native(
@@ -224,16 +135,10 @@ async fn resolve_native(
     }
 
     let token = state::new_token();
-    let synthetic = manifest_from_native(&verified);
     state.insert(
         token.clone(),
         PendingInstall {
-            native: Some(verified.clone()),
-            payload: Vec::new(),
-            payload_type: PayloadType::Exe,
-            file_name: verified.manifest.entry.clone(),
-            silent_args: String::new(),
-            manifest: synthetic,
+            package: verified.clone(),
             source_url: source_url.clone(),
             trust: verified.trust,
             created_at: std::time::Instant::now(),
@@ -277,80 +182,48 @@ pub async fn confirm(install_token: &str, state: &AppState) -> Result<InstallRes
         );
     }
 
-    if let Some(native_package) = pending.native.as_ref() {
-        let installed = native::install(native_package).map_err(|e| e.to_string())?;
-        if matches!(
-            native_package.trust,
-            TrustLevel::Verified | TrustLevel::VerifiedNewPublisher | TrustLevel::PublisherChanged
-        ) {
-            let pin = oip_core::PinnedKey {
-                id: native_package.manifest.id.clone(),
-                public_key: native_package.public_key.clone(),
-                first_seen: Some(unix_now_string()),
-            };
-            if let Err(e) = store::save_pin(&pin) {
-                eprintln!("warning: failed to persist publisher key pin: {e}");
-            }
-        }
-
-        let app = registry::InstalledApp {
+    let native_package = &pending.package;
+    let installed = native::install(native_package).map_err(|e| e.to_string())?;
+    if matches!(
+        native_package.trust,
+        TrustLevel::Verified | TrustLevel::VerifiedNewPublisher | TrustLevel::PublisherChanged
+    ) {
+        let pin = oip_core::PinnedKey {
             id: native_package.manifest.id.clone(),
-            name: native_package.manifest.name.clone(),
-            publisher: native_package.manifest.publisher.name.clone(),
-            version: native_package.manifest.version.clone(),
-            homepage: native_package.manifest.publisher.website.clone(),
-            source_url: pending.source_url.clone(),
-            trust: native_package.trust,
-            key_fingerprint: native_package.key_fingerprint.clone(),
-            installed_at: unix_now_string(),
-            launch_target: installed.launch_target,
-            entry_path: Some(installed.entry_path),
-            icon: installed.icon,
+            public_key: native_package.public_key.clone(),
+            first_seen: Some(unix_now_string()),
         };
-        if let Err(e) = registry::record(app) {
-            eprintln!("warning: failed to record installed app: {e}");
+        if let Err(e) = store::save_pin(&pin) {
+            eprintln!("warning: failed to persist publisher key pin: {e}");
         }
-
-        return Ok(InstallResult {
-            success: true,
-            exit_code: None,
-            message: format!(
-                "Installed {} {} to {}",
-                native_package.manifest.name,
-                native_package.manifest.version,
-                installed.install_dir
-            ),
-        });
     }
 
-    Err("OpenInstall v1 installs native manifest.json + files/ packages".to_string())
-}
-
-fn manifest_from_native(package: &native::VerifiedNativePackage) -> Manifest {
-    Manifest {
-        schema: 1,
-        id: package.manifest.id.clone(),
-        name: package.manifest.name.clone(),
-        publisher: package.manifest.publisher.name.clone(),
-        version: package.manifest.version.clone(),
-        homepage: package.manifest.publisher.website.clone(),
-        payload: Payload {
-            file: format!("files/{}", package.manifest.entry),
-            payload_type: PayloadType::Exe,
-            hash_blake3: "0".repeat(64),
-            hash_sha256: "0".repeat(64),
-            silent_args: String::new(),
-        },
-        publisher_key: Some(PublisherKey {
-            key_type: "minisign".to_string(),
-            public_key: package.public_key.clone(),
-        }),
+    let app = registry::InstalledApp {
+        id: native_package.manifest.id.clone(),
+        name: native_package.manifest.name.clone(),
+        publisher: native_package.manifest.publisher.name.clone(),
+        version: native_package.manifest.version.clone(),
+        homepage: native_package.manifest.publisher.website.clone(),
+        source_url: pending.source_url.clone(),
+        trust: native_package.trust,
+        key_fingerprint: native_package.key_fingerprint.clone(),
+        installed_at: unix_now_string(),
+        launch_target: installed.launch_target,
+        entry_path: Some(installed.entry_path),
+        icon: installed.icon,
+    };
+    if let Err(e) = registry::record(app) {
+        eprintln!("warning: failed to record installed app: {e}");
     }
-}
 
-/// Last path component of a manifest payload path (`payload/Setup.exe` -> `Setup.exe`).
-fn basename(p: &str) -> String {
-    p.rsplit(['/', '\\']).next().unwrap_or(p).to_string()
+    Ok(InstallResult {
+        success: true,
+        exit_code: None,
+        message: format!(
+            "Installed {} {} to {}",
+            native_package.manifest.name, native_package.manifest.version, installed.install_dir
+        ),
+    })
 }
 
 fn unix_now_string() -> String {
@@ -359,16 +232,4 @@ fn unix_now_string() -> String {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs().to_string())
         .unwrap_or_default()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn basename_handles_both_separators() {
-        assert_eq!(basename("payload/Setup.exe"), "Setup.exe");
-        assert_eq!(basename(r"payload\Setup.exe"), "Setup.exe");
-        assert_eq!(basename("Setup.exe"), "Setup.exe");
-    }
 }

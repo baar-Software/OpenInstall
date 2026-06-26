@@ -19,7 +19,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "AGPL-3.0-only"
 repository = "https://github.com/baar-Software/OpenInstall"
@@ -89,13 +89,8 @@ doctest = false
 
 [dev-dependencies]
 oip-core = { workspace = true }
-blake3 = { workspace = true }
+oip-pack = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 minisign = { workspace = true }
-minisign-verify = { workspace = true }
 zip = { workspace = true }
-toml = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tempfile = { workspace = true }

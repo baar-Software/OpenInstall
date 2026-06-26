@@ -3,7 +3,7 @@ name = "oip-pack"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "OpenInstall package authoring: build native .oip packages, generate minisign keypairs, and sign package manifests. Byte-based and I/O-free so both oip-cli and the GUI can reuse it. Never signs third-party payloads with the OpenInstall release certificate and has no silent-install behavior."
+description = "OpenInstall package authoring: build and sign native .oip packages and generate minisign keypairs. Byte-based and I/O-free so both oip-cli and the GUI can reuse it. Never signs third-party payloads with the OpenInstall release certificate and has no silent-install behavior."
 
 [lib]
 name = "oip_pack"
@@ -12,11 +12,9 @@ path = "src/lib.rs"
 [dependencies]
 oip-core = { workspace = true }
 minisign = { workspace = true }
-blake3 = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 zip = { workspace = true }
-toml = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }

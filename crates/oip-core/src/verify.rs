@@ -1,18 +1,15 @@
-//! Signature and payload verification (brief §1.2, §3 steps 5–6).
+//! Publisher signature verification (brief §1.2, §3 step 5).
 
 use minisign_verify::{PublicKey, Signature};
-use sha2::{Digest, Sha256};
 
 use crate::error::OipError;
-use crate::manifest::Manifest;
 
-/// Verify a detached minisign signature over the exact bytes of `manifest.toml`.
+/// Verify a detached minisign signature over the exact manifest bytes.
 ///
-/// * `manifest_bytes` — the byte-for-byte content that was signed (NOT the parsed
-///   model; the signature covers raw bytes, brief §2).
-/// * `sig` — the full contents of `manifest.minisig` (the detached signature file).
-/// * `pubkey` — the publisher minisign public key (`RW...` base64 form), i.e.
-///   `Manifest::publisher_key.public_key`.
+/// * `manifest_bytes` — the byte-for-byte content that was signed (NOT a parsed
+///   model; the signature covers raw bytes).
+/// * `sig` — the full contents of the detached signature file.
+/// * `pubkey` — the publisher minisign public key (`RW...` base64 form).
 ///
 /// Returns `Ok(())` only if the signature verifies. On a malformed key/signature
 /// or a verification failure, returns the corresponding [`OipError`] — never a
@@ -62,42 +59,4 @@ fn parse_public_key(pubkey: &str) -> Result<PublicKey, OipError> {
 
     // Fallback: a full `minisign.pub` file (comment line + key line).
     PublicKey::decode(trimmed).map_err(|e| OipError::MalformedPublicKey(e.to_string()))
-}
-
-/// Verify the payload bytes against BOTH hashes pinned in the manifest.
-///
-/// Computes BLAKE3-256 and SHA-256 over `bytes` and compares (case-insensitive
-/// hex) against `m.payload.hash_blake3` / `m.payload.hash_sha256`. Returns
-/// [`OipError::Blake3Mismatch`] or [`OipError::Sha256Mismatch`] on the first
-/// mismatch. BOTH must pass. No I/O.
-///
-/// Defense in depth: pinning two independent hash functions means a single
-/// broken primitive cannot let a substituted payload through.
-pub fn verify_payload(bytes: &[u8], m: &Manifest) -> Result<(), OipError> {
-    // BLAKE3-256: `Hash::to_hex` yields lowercase hex.
-    let blake3_hex = blake3::hash(bytes).to_hex();
-    if !hex_eq_ascii_ci(blake3_hex.as_str(), &m.payload.hash_blake3) {
-        return Err(OipError::Blake3Mismatch);
-    }
-
-    // SHA-256.
-    let sha256_hex = hex::encode(Sha256::digest(bytes));
-    if !hex_eq_ascii_ci(&sha256_hex, &m.payload.hash_sha256) {
-        return Err(OipError::Sha256Mismatch);
-    }
-
-    Ok(())
-}
-
-/// Compare two hex strings for equality, ignoring ASCII case.
-///
-/// `parse_manifest` already constrains the manifest pins to 64 lowercase-hex
-/// chars, but `verify_payload` may be called on a `Manifest` constructed by other
-/// means, so we stay tolerant of uppercase on the manifest side while computing
-/// our own digests in lowercase.
-fn hex_eq_ascii_ci(a: &str, b: &str) -> bool {
-    a.len() == b.len()
-        && a.bytes()
-            .zip(b.bytes())
-            .all(|(x, y)| x.eq_ignore_ascii_case(&y))
 }
