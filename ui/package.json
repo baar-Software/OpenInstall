@@ -12,9 +12,9 @@
     "test": "node --test src/lib/consent.test.js src/lib/url.test.js"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^7.1.2",
-    "svelte": "^5.56.4",
-    "vite": "^8.1.0"
+    "@sveltejs/vite-plugin-svelte": "^7.2.0",
+    "svelte": "^5.56.6",
+    "vite": "^8.1.5"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
